@@ -60,7 +60,7 @@ export function useEchoBubbleLoop() {
   const [bubbleCount, setBubbleCount] = useState(0);
   const [toasts, setToasts] = useState([]);
   const [isHudVisible, setIsHudVisible] = useState(true);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(true);
   const [isBusy, setIsBusy] = useState(false);
 
   const selectedAsset = useMemo(
