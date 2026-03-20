@@ -383,6 +383,9 @@
       statusTimer: 0,
     };
 
+    let currentPreviewAudio = null;
+    let previewStopTimer = 0;
+
     const clock = new THREE.Clock();
     const listenerPosition = new THREE.Vector3();
     const listenerQuaternion = new THREE.Quaternion();
@@ -501,8 +504,9 @@
       updateUi(true);
 
       const selectedAsset = getSelectedAsset();
+      const previewStarted = selectedAsset ? playPreview(selectedAsset) : false;
       setStatus(selectedAsset
-        ? `Imported ${files.length} sound${files.length > 1 ? 's' : ''}. Current source: ${selectedAsset.name}. Enter AR and place it directly in front of you.`
+        ? `Imported ${files.length} sound${files.length > 1 ? 's' : ''}. Current source: ${selectedAsset.name}.${previewStarted ? ' Previewing for one second.' : ' Preview is paused while scene bubbles are active.'} Enter AR and place it directly in front of you.`
         : 'Audio imported. Choose a sound source to continue.');
     }
 
@@ -534,7 +538,8 @@
       const asset = getSelectedAsset();
       updateUi(true);
       if (asset) {
-        setStatus(`Current source changed to ${asset.name}. Existing bubbles keep playing while new bubbles use the newly selected sound.`);
+        const previewStarted = playPreview(asset);
+        setStatus(`Current source changed to ${asset.name}. ${previewStarted ? 'Previewing briefly.' : 'Preview is paused while scene bubbles are active.'} Existing bubbles keep playing while new bubbles use the newly selected sound.`);
       }
     }
 
@@ -596,6 +601,7 @@
 
       try {
         await ensureAudioContext();
+        stopPreview();
         placeBubble(asset);
       } catch (error) {
         console.error(error);
@@ -749,6 +755,7 @@
     }
 
     function clearAllBubbles() {
+      stopPreview();
       while (state.bubbles.length) {
         destroyBubble(state.bubbles.shift(), true);
       }
@@ -800,9 +807,55 @@
     }
 
     function disposeLibraryUrls() {
+      stopPreview();
       for (const asset of state.audioLibrary) {
         URL.revokeObjectURL(asset.url);
       }
+    }
+
+    function playPreview(asset) {
+      stopPreview();
+
+      if (state.bubbles.length > 0) {
+        return false;
+      }
+
+      const preview = new Audio(asset.url);
+      preview.preload = 'auto';
+      preview.playsInline = true;
+      preview.volume = 0.8;
+
+      currentPreviewAudio = preview;
+      previewStopTimer = window.setTimeout(() => {
+        stopPreview();
+      }, 1000);
+
+      preview.play().catch((error) => {
+        console.error(error);
+        stopPreview();
+        setStatus(`Preview playback was blocked for ${asset.name}. Bubble playback is still available after placement.`);
+      });
+
+      return true;
+    }
+
+    function stopPreview() {
+      window.clearTimeout(previewStopTimer);
+      previewStopTimer = 0;
+
+      if (!currentPreviewAudio) {
+        return;
+      }
+
+      try {
+        currentPreviewAudio.pause();
+        currentPreviewAudio.currentTime = 0;
+        currentPreviewAudio.src = '';
+      } catch {
+        // Ignore preview cleanup errors.
+      }
+
+      currentPreviewAudio = null;
     }
 
     function onWindowResize() {
