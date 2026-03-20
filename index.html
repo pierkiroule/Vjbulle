@@ -329,11 +329,11 @@
       </div>
 
       <div class="status-shell">
-        <div id="status" class="status">Import one or more sounds, choose the current source, enter AR, then tap surfaces to place calm, looping sound bubbles around you.</div>
+        <div id="status" class="status">Import one or more sounds, choose the current source, enter AR, then tap to place calm, looping sound bubbles directly where you are looking.</div>
       </div>
 
       <div class="legend">
-        <span>Tap surface to place</span>
+        <span>Tap to place forward</span>
         <span>Max 8 active bubbles</span>
         <span>Independent spatial loops</span>
       </div>
@@ -348,6 +348,7 @@
     const FLOAT_HEIGHT = 0.028;
     const DRIFT_AMOUNT = 0.013;
     const MAX_AUDIBLE_DISTANCE = 9;
+    const PLACE_DISTANCE = 0.4;
     const FADE_TIME = 0.12;
     const ENTRY_DURATION = 0.72;
 
@@ -370,11 +371,7 @@
       renderer: null,
       scene: null,
       camera: null,
-      reticle: null,
       xrSession: null,
-      referenceSpace: null,
-      viewerSpace: null,
-      hitTestSource: null,
       audioContext: null,
       masterGain: null,
       selectedAssetId: '',
@@ -387,13 +384,13 @@
     };
 
     const clock = new THREE.Clock();
-    const tempMatrix = new THREE.Matrix4();
     const listenerPosition = new THREE.Vector3();
     const listenerQuaternion = new THREE.Quaternion();
     const listenerForward = new THREE.Vector3(0, 0, -1);
     const listenerUp = new THREE.Vector3(0, 1, 0);
     const tempForward = new THREE.Vector3();
     const tempUp = new THREE.Vector3();
+    const placementOrigin = new THREE.Vector3();
     const bubbleOffset = new THREE.Vector3();
     const bubblePosition = new THREE.Vector3();
 
@@ -404,7 +401,7 @@
       setupUi();
       state.renderer.setAnimationLoop(render);
       updateUi();
-      setStatus('Import one or more sounds to begin building a meditative spatial composition in AR.');
+      setStatus('Import one or more sounds to begin building a meditative spatial composition in AR, then place each bubble exactly where you are looking.');
       requestAnimationFrame(() => document.body.classList.add('ready'));
       checkArAvailability();
     }
@@ -424,20 +421,6 @@
       const keyLight = new THREE.DirectionalLight(0xffffff, 0.55);
       keyLight.position.set(1, 2, 1);
       state.scene.add(keyLight);
-
-      state.reticle = new THREE.Mesh(
-        new THREE.RingGeometry(0.064, 0.084, 48).rotateX(-Math.PI / 2),
-        new THREE.MeshBasicMaterial({
-          color: 0x8ee7ff,
-          transparent: true,
-          opacity: 0.92,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        }),
-      );
-      state.reticle.matrixAutoUpdate = false;
-      state.reticle.visible = false;
-      state.scene.add(state.reticle);
     }
 
     function setupUi() {
@@ -519,7 +502,7 @@
 
       const selectedAsset = getSelectedAsset();
       setStatus(selectedAsset
-        ? `Imported ${files.length} sound${files.length > 1 ? 's' : ''}. Current source: ${selectedAsset.name}. Enter AR and place it into the room.`
+        ? `Imported ${files.length} sound${files.length > 1 ? 's' : ''}. Current source: ${selectedAsset.name}. Enter AR and place it directly in front of you.`
         : 'Audio imported. Choose a sound source to continue.');
     }
 
@@ -569,7 +552,6 @@
       try {
         await ensureAudioContext();
         const session = await navigator.xr.requestSession('immersive-ar', {
-          requiredFeatures: ['hit-test'],
           optionalFeatures: ['dom-overlay', 'local-floor'],
           domOverlay: { root: ui.overlay },
         });
@@ -581,13 +563,9 @@
         state.renderer.xr.setReferenceSpaceType('local');
         await state.renderer.xr.setSession(session);
 
-        state.referenceSpace = await session.requestReferenceSpace('local');
-        state.viewerSpace = await session.requestReferenceSpace('viewer');
-        state.hitTestSource = await session.requestHitTestSource({ space: state.viewerSpace });
-
         ui.enterArBtn.textContent = 'Exit AR';
         setStatus(getSelectedAsset()
-          ? 'AR started. Move gently until the reticle appears, then tap to place the selected sound bubble.'
+          ? 'AR started. Look somewhere in space, then tap to place the selected sound bubble 0.4 meters ahead.'
           : 'AR started. Import and choose a sound source before placing bubbles.');
       } catch (error) {
         console.error(error);
@@ -600,15 +578,6 @@
       session?.removeEventListener('end', onSessionEnd);
       session?.removeEventListener('select', onSelect);
       state.xrSession = null;
-
-      if (state.hitTestSource) {
-        state.hitTestSource.cancel();
-        state.hitTestSource = null;
-      }
-
-      state.referenceSpace = null;
-      state.viewerSpace = null;
-      state.reticle.visible = false;
       ui.enterArBtn.textContent = 'Enter AR';
       setStatus('AR session ended. Re-enter whenever you want to continue shaping the sound environment.');
     }
@@ -616,11 +585,6 @@
     async function onSelect() {
       if (state.isListeningMode) {
         setStatus('Listening mode is active. Switch back to Creation mode when you want to place more bubbles.');
-        return;
-      }
-
-      if (!state.reticle.visible) {
-        setStatus('No surface detected yet. Move slowly until the reticle settles on a real surface.');
         return;
       }
 
@@ -641,9 +605,11 @@
 
     function placeBubble(asset) {
       const bubble = createBubble(asset);
-      tempMatrix.copy(state.reticle.matrix);
-      bubble.root.position.setFromMatrixPosition(tempMatrix);
-      bubble.root.quaternion.setFromRotationMatrix(tempMatrix);
+      state.camera.getWorldPosition(placementOrigin);
+      state.camera.getWorldQuaternion(listenerQuaternion);
+      tempForward.copy(listenerForward).applyQuaternion(listenerQuaternion).normalize();
+      bubble.root.position.copy(placementOrigin).addScaledVector(tempForward, PLACE_DISTANCE);
+      bubble.root.quaternion.copy(listenerQuaternion);
       bubble.root.scale.setScalar(0.001);
       state.scene.add(bubble.root);
       state.bubbles.push(bubble);
@@ -801,7 +767,7 @@
 
       setStatus(state.isListeningMode
         ? 'Listening mode active. Slow down, walk through the room, and let the soundscape reveal itself.'
-        : 'Creation mode active. Tap the reticle to plant new sound bubbles into the environment.');
+        : 'Creation mode active. Look somewhere and tap to plant new sound bubbles into the environment.');
     }
 
     function updateUi(animateSource = false) {
@@ -843,28 +809,6 @@
       state.camera.aspect = window.innerWidth / window.innerHeight;
       state.camera.updateProjectionMatrix();
       state.renderer.setSize(window.innerWidth, window.innerHeight);
-    }
-
-    function updateHitTest(frame) {
-      if (!state.xrSession || !frame || !state.referenceSpace || !state.hitTestSource) {
-        state.reticle.visible = false;
-        return;
-      }
-
-      const hits = frame.getHitTestResults(state.hitTestSource);
-      if (!hits.length) {
-        state.reticle.visible = false;
-        return;
-      }
-
-      const pose = hits[0].getPose(state.referenceSpace);
-      if (!pose) {
-        state.reticle.visible = false;
-        return;
-      }
-
-      state.reticle.visible = !state.isListeningMode;
-      state.reticle.matrix.fromArray(pose.transform.matrix);
     }
 
     function updateListener() {
@@ -943,10 +887,9 @@
       }
     }
 
-    function render(timestamp, frame) {
+    function render(timestamp) {
       const delta = clock.getDelta();
       const elapsedTime = timestamp ? timestamp * 0.001 : clock.elapsedTime;
-      updateHitTest(frame);
       updateListener();
       updateBubbles(delta, elapsedTime);
       state.renderer.render(state.scene, state.camera);
