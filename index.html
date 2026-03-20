@@ -7,12 +7,12 @@
   <style>
     :root {
       color-scheme: dark;
-      --bg: rgba(8, 12, 24, 0.74);
-      --border: rgba(255, 255, 255, 0.18);
-      --text: #f1f5ff;
-      --accent: #8fe7ff;
-      --accent-strong: #61b8ff;
-      --danger: #ff7f9f;
+      --bg: rgba(8, 12, 24, 0.76);
+      --border: rgba(255, 255, 255, 0.16);
+      --text: #eff4ff;
+      --accent: #87e6ff;
+      --soft: rgba(255, 255, 255, 0.1);
+      --danger: rgba(255, 120, 155, 0.2);
     }
 
     * {
@@ -24,8 +24,7 @@
       overflow: hidden;
       font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--text);
-      background:
-        radial-gradient(circle at top, #182142 0%, #060812 40%, #02030a 100%);
+      background: radial-gradient(circle at top, #172347 0%, #070a14 42%, #020309 100%);
     }
 
     canvas {
@@ -39,42 +38,48 @@
       display: flex;
       align-items: flex-end;
       justify-content: center;
-      padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+      padding:
+        max(16px, env(safe-area-inset-top))
+        max(16px, env(safe-area-inset-right))
+        max(16px, env(safe-area-inset-bottom))
+        max(16px, env(safe-area-inset-left));
     }
 
     .panel {
-      width: min(420px, 100%);
+      width: min(440px, 100%);
       pointer-events: auto;
       display: grid;
       gap: 12px;
       padding: 16px;
-      border-radius: 20px;
-      background: var(--bg);
+      border-radius: 22px;
       border: 1px solid var(--border);
+      background: var(--bg);
       backdrop-filter: blur(18px);
-      box-shadow: 0 16px 60px rgba(0, 0, 0, 0.35);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
     }
 
-    .heading {
+    .heading,
+    .row {
       display: flex;
-      justify-content: space-between;
       align-items: center;
+      justify-content: space-between;
       gap: 12px;
     }
 
     .title {
-      font-size: 1.1rem;
-      font-weight: 700;
+      font-size: 1.12rem;
+      font-weight: 800;
       letter-spacing: 0.02em;
     }
 
-    .mode {
+    .badge {
       padding: 6px 10px;
       border-radius: 999px;
-      font-size: 0.8rem;
+      background: rgba(135, 230, 255, 0.12);
+      border: 1px solid rgba(135, 230, 255, 0.18);
       color: var(--accent);
-      background: rgba(143, 231, 255, 0.12);
-      border: 1px solid rgba(143, 231, 255, 0.2);
+      font-size: 0.78rem;
+      white-space: nowrap;
     }
 
     .controls {
@@ -84,37 +89,36 @@
     }
 
     button,
-    .file-label {
+    .file-label,
+    select {
       width: 100%;
-      border: 0;
       border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
       padding: 13px 14px;
-      color: white;
-      background: linear-gradient(135deg, rgba(97, 184, 255, 0.92), rgba(143, 231, 255, 0.72));
       font: inherit;
-      font-weight: 700;
-      letter-spacing: 0.03em;
-      text-align: center;
+      color: white;
+      background: rgba(255, 255, 255, 0.12);
       cursor: pointer;
       transition: transform 140ms ease, opacity 140ms ease, background 140ms ease;
+    }
+
+    button.primary {
+      background: linear-gradient(135deg, rgba(97, 184, 255, 0.94), rgba(135, 230, 255, 0.72));
+      border: 0;
+      font-weight: 800;
       text-transform: uppercase;
+      letter-spacing: 0.03em;
       font-size: 0.78rem;
     }
 
-    button.secondary,
-    .file-label {
-      background: rgba(255, 255, 255, 0.12);
-      border: 1px solid rgba(255, 255, 255, 0.14);
-    }
-
     button.danger {
-      background: rgba(255, 127, 159, 0.18);
-      border: 1px solid rgba(255, 127, 159, 0.3);
-      color: #ffd7e2;
+      background: var(--danger);
+      color: #ffd5e2;
     }
 
     button:disabled,
-    .file-label.disabled {
+    .file-label.disabled,
+    select:disabled {
       opacity: 0.45;
       cursor: not-allowed;
     }
@@ -124,17 +128,39 @@
       transform: scale(0.98);
     }
 
+    .file-label {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      font-size: 0.78rem;
+    }
+
     input[type="file"] {
       display: none;
     }
 
+    .label {
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .source-wrap {
+      display: grid;
+      gap: 8px;
+    }
+
     .status {
+      min-height: 78px;
       padding: 12px 14px;
-      min-height: 72px;
       border-radius: 16px;
       background: rgba(255, 255, 255, 0.07);
       border: 1px solid rgba(255, 255, 255, 0.08);
-      line-height: 1.4;
+      line-height: 1.45;
       font-size: 0.92rem;
     }
 
@@ -142,8 +168,8 @@
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      font-size: 0.78rem;
       color: rgba(255, 255, 255, 0.76);
+      font-size: 0.78rem;
     }
 
     .legend span {
@@ -159,24 +185,36 @@
     <div class="panel">
       <div class="heading">
         <div class="title">EchoBubbleLoop</div>
-        <div id="modeBadge" class="mode">Creation mode</div>
+        <div id="modeBadge" class="badge">Creation mode</div>
       </div>
 
       <div class="controls">
-        <button id="enterArBtn">ENTER AR</button>
+        <button id="enterArBtn" class="primary">ENTER AR</button>
         <label id="fileLabel" class="file-label" for="audioInput">IMPORT AUDIO</label>
-        <button id="modeBtn" class="secondary">Listening Mode</button>
+        <button id="modeBtn">Listening Mode</button>
         <button id="clearBtn" class="danger">CLEAR ALL</button>
       </div>
 
-      <input id="audioInput" type="file" accept="audio/mpeg,audio/wav,audio/mp3,audio/x-wav,audio/*" />
+      <input id="audioInput" type="file" accept="audio/*,.mp3,.wav" multiple />
 
-      <div id="status" class="status">Load an audio file to start planting sound bubbles. WebXR AR requires a compatible Android device, Chrome, ARCore, and HTTPS.</div>
+      <div class="source-wrap">
+        <div class="row">
+          <div class="label">Current source</div>
+          <div id="libraryBadge" class="badge">0 files</div>
+        </div>
+        <select id="audioSelect" disabled>
+          <option value="">Import audio files first</option>
+        </select>
+      </div>
+
+      <div id="status" class="status">
+        Import one or more sounds, choose the current source, enter AR, then tap surfaces to build a layered spatial soundscape.
+      </div>
 
       <div class="legend">
         <span>Tap surface to place</span>
-        <span>Max 10 bubbles</span>
-        <span>Looped spatial audio</span>
+        <span>Max 8 live bubbles</span>
+        <span>Independent spatial loops</span>
       </div>
     </div>
   </div>
@@ -184,44 +222,52 @@
   <script type="module">
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js';
 
-    const MAX_BUBBLES = 10;
-    const FLOAT_SPEED = 0.8;
-    const FLOAT_HEIGHT = 0.035;
-    const DRIFT_AMOUNT = 0.015;
+    const MAX_BUBBLES = 8;
+    const FLOAT_SPEED = 0.7;
+    const FLOAT_HEIGHT = 0.03;
+    const DRIFT_AMOUNT = 0.014;
+    const MAX_AUDIBLE_DISTANCE = 10;
 
     const enterArBtn = document.getElementById('enterArBtn');
     const clearBtn = document.getElementById('clearBtn');
-    const audioInput = document.getElementById('audioInput');
-    const fileLabel = document.getElementById('fileLabel');
     const modeBtn = document.getElementById('modeBtn');
+    const audioInput = document.getElementById('audioInput');
+    const audioSelect = document.getElementById('audioSelect');
+    const fileLabel = document.getElementById('fileLabel');
     const statusEl = document.getElementById('status');
     const modeBadge = document.getElementById('modeBadge');
+    const libraryBadge = document.getElementById('libraryBadge');
 
     let renderer;
     let scene;
     let camera;
     let reticle;
+
     let xrSession = null;
     let referenceSpace = null;
     let viewerSpace = null;
     let hitTestSource = null;
-    let hitTestSourceRequested = false;
 
     let audioContext = null;
-    let audioBuffer = null;
-    let masterGain = null;
-    let bubbles = [];
-    let bubbleId = 0;
+    let mixGain = null;
+    let selectedAssetId = '';
+    let assetCounter = 0;
+    let bubbleCounter = 0;
     let isListeningMode = false;
 
+    const audioLibrary = [];
+    const bubbles = [];
+
+    const clock = new THREE.Clock();
+    const tempMatrix = new THREE.Matrix4();
     const listenerPosition = new THREE.Vector3();
     const listenerQuaternion = new THREE.Quaternion();
     const listenerForward = new THREE.Vector3(0, 0, -1);
     const listenerUp = new THREE.Vector3(0, 1, 0);
-    const bubbleWorldPosition = new THREE.Vector3();
-    const bubbleVisualOffset = new THREE.Vector3();
-    const tempMatrix = new THREE.Matrix4();
-    const clock = new THREE.Clock();
+    const tempForward = new THREE.Vector3();
+    const tempUp = new THREE.Vector3();
+    const bubbleOffset = new THREE.Vector3();
+    const bubblePosition = new THREE.Vector3();
 
     init();
 
@@ -231,27 +277,26 @@
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 40);
       scene.add(camera);
 
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
       document.body.appendChild(renderer.domElement);
 
-      const ambientLight = new THREE.HemisphereLight(0xbbe7ff, 0x334455, 1.5);
-      scene.add(ambientLight);
+      scene.add(new THREE.HemisphereLight(0xb9e6ff, 0x314259, 1.5));
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.55);
+      directionalLight.position.set(1, 2, 1);
+      scene.add(directionalLight);
 
-      const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
-      dirLight.position.set(1, 2, 1);
-      scene.add(dirLight);
-
-      const reticleGeometry = new THREE.RingGeometry(0.07, 0.09, 48).rotateX(-Math.PI / 2);
-      const reticleMaterial = new THREE.MeshBasicMaterial({
-        color: 0x8fe7ff,
-        transparent: true,
-        opacity: 0.85,
-        side: THREE.DoubleSide,
-      });
-      reticle = new THREE.Mesh(reticleGeometry, reticleMaterial);
+      reticle = new THREE.Mesh(
+        new THREE.RingGeometry(0.065, 0.085, 48).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({
+          color: 0x87e6ff,
+          transparent: true,
+          opacity: 0.9,
+          side: THREE.DoubleSide,
+        }),
+      );
       reticle.matrixAutoUpdate = false;
       reticle.visible = false;
       scene.add(reticle);
@@ -260,18 +305,20 @@
       enterArBtn.addEventListener('click', onEnterAr);
       clearBtn.addEventListener('click', clearAllBubbles);
       modeBtn.addEventListener('click', toggleMode);
-      audioInput.addEventListener('change', onAudioSelected);
+      audioInput.addEventListener('change', onAudioImported);
+      audioSelect.addEventListener('change', onAudioSelected);
 
-      updateUiState();
-      setStatus('Ready. Import a sound, then enter AR and tap a surface to place an Echo Bubble.');
       renderer.setAnimationLoop(render);
+      updateUi();
+      setStatus('Import one or more sounds to create a multi-source AR soundscape. Each new bubble uses the currently selected source.');
 
       if (!navigator.xr) {
         enterArBtn.disabled = true;
-        setStatus('WebXR is unavailable in this browser. Use Chrome on Android with ARCore over HTTPS.');
-      } else {
-        checkArSupport();
+        setStatus('WebXR is unavailable. Use Chrome on Android with ARCore over HTTPS.');
+        return;
       }
+
+      checkArSupport();
     }
 
     async function checkArSupport() {
@@ -291,13 +338,13 @@
       if (!audioContext) {
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
         if (!AudioContextClass) {
-          throw new Error('Web Audio is unavailable in this browser.');
+          throw new Error('Web Audio API is unavailable in this browser.');
         }
 
         audioContext = new AudioContextClass({ latencyHint: 'interactive' });
-        masterGain = audioContext.createGain();
-        masterGain.gain.value = 0.9;
-        masterGain.connect(audioContext.destination);
+        mixGain = audioContext.createGain();
+        mixGain.gain.value = 0.9;
+        mixGain.connect(audioContext.destination);
       }
 
       if (audioContext.state === 'suspended') {
@@ -307,27 +354,72 @@
       return audioContext;
     }
 
-    async function onAudioSelected(event) {
-      const file = event.target.files?.[0];
-      if (!file) {
+    async function onAudioImported(event) {
+      const files = Array.from(event.target.files || []);
+      if (!files.length) {
         return;
       }
 
       try {
-        const context = await ensureAudioContext();
-        const arrayBuffer = await file.arrayBuffer();
-        audioBuffer = await context.decodeAudioData(arrayBuffer.slice(0));
-        fileLabel.textContent = file.name.length > 20 ? `${file.name.slice(0, 17)}...` : file.name;
-        setStatus(`Loaded audio: ${file.name}. Enter AR and tap a detected surface to place looping bubbles.`);
-
-        for (const bubble of bubbles) {
-          rebuildBubbleAudio(bubble);
-        }
+        await ensureAudioContext();
       } catch (error) {
-        console.error(error);
-        audioBuffer = null;
-        setStatus(`Audio import failed: ${error.message}`);
+        setStatus(`Audio initialization failed: ${error.message}`);
+        return;
       }
+
+      for (const file of files) {
+        const asset = {
+          id: `asset-${++assetCounter}`,
+          name: file.name,
+          url: URL.createObjectURL(file),
+          type: file.type || 'audio/*',
+        };
+        audioLibrary.push(asset);
+        selectedAssetId = asset.id;
+      }
+
+      audioInput.value = '';
+      refreshAudioSelect();
+      updateUi();
+
+      const selectedAsset = getSelectedAsset();
+      setStatus(selectedAsset
+        ? `Imported ${files.length} sound${files.length > 1 ? 's' : ''}. Current source: ${selectedAsset.name}. Tap in AR to place layered sound bubbles.`
+        : 'Audio imported. Choose a source to continue.');
+    }
+
+    function refreshAudioSelect() {
+      audioSelect.innerHTML = '';
+
+      if (!audioLibrary.length) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = 'Import audio files first';
+        audioSelect.append(option);
+        audioSelect.disabled = true;
+        return;
+      }
+
+      for (const asset of audioLibrary) {
+        const option = document.createElement('option');
+        option.value = asset.id;
+        option.textContent = asset.name;
+        if (asset.id === selectedAssetId) {
+          option.selected = true;
+        }
+        audioSelect.append(option);
+      }
+
+      audioSelect.disabled = false;
+    }
+
+    function onAudioSelected(event) {
+      selectedAssetId = event.target.value;
+      const asset = getSelectedAsset();
+      if (asset) {
+        setStatus(`Current source changed to ${asset.name}. Existing bubbles keep playing; new bubbles will use this source.`);
+      }
+      updateUi();
     }
 
     async function onEnterAr() {
@@ -359,12 +451,11 @@
         referenceSpace = await session.requestReferenceSpace('local');
         viewerSpace = await session.requestReferenceSpace('viewer');
         hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
-        hitTestSourceRequested = true;
 
         enterArBtn.textContent = 'EXIT AR';
-        setStatus(audioBuffer
-          ? 'AR started. Move until the reticle appears, then tap to place a sound bubble.'
-          : 'AR started. Import audio first, then tap a surface to place a sound bubble.');
+        setStatus(getSelectedAsset()
+          ? 'AR started. Scan until the reticle appears, then tap to place the selected sound in space.'
+          : 'AR started. Import and select a sound source before placing bubbles.');
       } catch (error) {
         console.error(error);
         setStatus(`Failed to start AR session: ${error.message}`);
@@ -384,37 +475,42 @@
 
       referenceSpace = null;
       viewerSpace = null;
-      hitTestSourceRequested = false;
       reticle.visible = false;
       enterArBtn.textContent = 'ENTER AR';
-      setStatus('AR session ended. You can re-enter AR at any time.');
+      setStatus('AR session ended. Re-enter AR to keep building your sound environment.');
     }
 
-    function onSelect() {
+    async function onSelect() {
       if (isListeningMode) {
-        setStatus('Listening mode is active. Switch back to Creation mode to place new bubbles.');
+        setStatus('Listening mode is active. Switch back to Creation mode to place more sound bubbles.');
         return;
       }
 
       if (!reticle.visible) {
-        setStatus('No surface found yet. Slowly scan the environment until the reticle appears.');
+        setStatus('No surface detected yet. Slowly move the device until the reticle locks onto a real surface.');
         return;
       }
 
-      if (!audioBuffer) {
-        setStatus('Import an audio file before placing bubbles.');
+      const asset = getSelectedAsset();
+      if (!asset) {
+        setStatus('Import and select an audio source before placing a bubble.');
         return;
       }
 
-      placeBubbleFromReticle();
+      try {
+        await ensureAudioContext();
+        await placeBubbleFromReticle(asset);
+      } catch (error) {
+        console.error(error);
+        setStatus(`Unable to place bubble: ${error.message}`);
+      }
     }
 
-    function placeBubbleFromReticle() {
-      const bubble = createBubble();
+    async function placeBubbleFromReticle(asset) {
+      const bubble = await createBubble(asset);
       tempMatrix.copy(reticle.matrix);
       bubble.root.position.setFromMatrixPosition(tempMatrix);
       bubble.root.quaternion.setFromRotationMatrix(tempMatrix);
-      bubble.root.scale.setScalar(1);
       scene.add(bubble.root);
       bubbles.push(bubble);
 
@@ -422,36 +518,34 @@
         destroyBubble(bubbles.shift());
       }
 
-      setStatus(`Placed bubble ${bubbles.length}/${MAX_BUBBLES}. Walk around to hear its spatial loop.`);
-      updateUiState();
+      setStatus(`Placed ${asset.name}. ${bubbles.length}/${MAX_BUBBLES} bubbles active. Keep walking to hear the soundscape blend.`);
+      updateUi();
     }
 
-    function createBubble() {
+    async function createBubble(asset) {
       const root = new THREE.Group();
-      root.matrixAutoUpdate = true;
 
       const sphere = new THREE.Mesh(
-        new THREE.SphereGeometry(0.09, 32, 32),
+        new THREE.SphereGeometry(0.09, 28, 28),
         new THREE.MeshPhysicalMaterial({
-          color: 0x82d9ff,
+          color: 0x87d9ff,
           transparent: true,
-          opacity: 0.35,
-          roughness: 0.15,
-          metalness: 0,
+          opacity: 0.34,
+          roughness: 0.16,
           transmission: 0.55,
-          thickness: 0.4,
+          thickness: 0.45,
           clearcoat: 1,
-          emissive: 0x1f6cff,
-          emissiveIntensity: 0.45,
+          emissive: 0x1e67ff,
+          emissiveIntensity: 0.5,
         }),
       );
 
       const glow = new THREE.Mesh(
         new THREE.SphereGeometry(0.115, 24, 24),
         new THREE.MeshBasicMaterial({
-          color: 0x8fe7ff,
+          color: 0x87e6ff,
           transparent: true,
-          opacity: 0.12,
+          opacity: 0.11,
           depthWrite: false,
         }),
       );
@@ -459,85 +553,67 @@
       root.add(glow);
       root.add(sphere);
 
-      const bubble = {
-        id: ++bubbleId,
+      const audio = await createBubbleAudio(asset);
+
+      return {
+        id: `bubble-${++bubbleCounter}`,
+        assetId: asset.id,
+        assetName: asset.name,
         root,
         sphere,
         glow,
-        createdAt: performance.now() * 0.001,
         seed: Math.random() * Math.PI * 2,
-        audio: null,
+        audio,
       };
-
-      rebuildBubbleAudio(bubble);
-      return bubble;
     }
 
-    function rebuildBubbleAudio(bubble) {
-      stopBubbleAudio(bubble);
+    async function createBubbleAudio(asset) {
+      const context = await ensureAudioContext();
+      const element = document.createElement('audio');
+      element.src = asset.url;
+      element.loop = true;
+      element.preload = 'auto';
+      element.crossOrigin = 'anonymous';
+      element.playsInline = true;
 
-      if (!audioContext || !audioBuffer) {
-        return;
-      }
+      const source = context.createMediaElementSource(element);
+      const gain = context.createGain();
+      const panner = context.createPanner();
 
-      const source = audioContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.loop = true;
-
-      const panner = audioContext.createPanner();
       panner.panningModel = 'HRTF';
-      panner.distanceModel = 'linear';
-      panner.refDistance = 0.3;
-      panner.maxDistance = 8;
-      panner.rolloffFactor = 1;
+      panner.distanceModel = 'inverse';
+      panner.refDistance = 0.45;
+      panner.maxDistance = MAX_AUDIBLE_DISTANCE;
+      panner.rolloffFactor = 1.7;
       panner.coneInnerAngle = 360;
       panner.coneOuterAngle = 0;
 
-      const gain = audioContext.createGain();
       gain.gain.value = 0.0001;
 
       source.connect(gain);
       gain.connect(panner);
-      panner.connect(masterGain);
-      source.start();
+      panner.connect(mixGain);
 
-      bubble.audio = { source, panner, gain };
-    }
-
-    function stopBubbleAudio(bubble) {
-      if (!bubble?.audio) {
-        return;
-      }
-
-      const { source, panner, gain } = bubble.audio;
       try {
-        gain.disconnect();
-        panner.disconnect();
-        source.disconnect();
-        source.stop();
-      } catch {
-        // No-op on already-stopped nodes.
+        await element.play();
+      } catch (error) {
+        throw new Error(`Audio playback failed for ${asset.name}: ${error.message}`);
       }
-      bubble.audio = null;
-    }
 
-    function clearAllBubbles() {
-      for (const bubble of bubbles) {
-        destroyBubble(bubble);
-      }
-      bubbles = [];
-      setStatus('All bubbles cleared. Import audio and place new ones whenever you like.');
-      updateUiState();
+      return { element, source, gain, panner };
     }
 
     function destroyBubble(bubble) {
       if (!bubble) {
         return;
       }
-      stopBubbleAudio(bubble);
+
+      stopBubbleAudio(bubble.audio);
       scene.remove(bubble.root);
       bubble.root.traverse((object) => {
-        if (object.geometry) object.geometry.dispose();
+        if (object.geometry) {
+          object.geometry.dispose();
+        }
         if (object.material) {
           if (Array.isArray(object.material)) {
             object.material.forEach((material) => material.dispose());
@@ -548,22 +624,62 @@
       });
     }
 
+    function stopBubbleAudio(audio) {
+      if (!audio) {
+        return;
+      }
+
+      const { element, source, gain, panner } = audio;
+      try {
+        element.pause();
+        element.src = '';
+        element.load();
+        source.disconnect();
+        gain.disconnect();
+        panner.disconnect();
+      } catch {
+        // Ignore teardown errors from already-cleaned nodes.
+      }
+    }
+
+    function clearAllBubbles() {
+      while (bubbles.length) {
+        destroyBubble(bubbles.shift());
+      }
+
+      setStatus('All bubbles cleared. Import or select a source and place new layers to rebuild the soundscape.');
+      updateUi();
+    }
+
     function toggleMode() {
       isListeningMode = !isListeningMode;
       modeBtn.textContent = isListeningMode ? 'Creation Mode' : 'Listening Mode';
-      updateUiState();
+      modeBadge.textContent = isListeningMode ? 'Listening mode' : 'Creation mode';
       setStatus(isListeningMode
-        ? 'Listening mode active. Walk around to explore the sound field.'
-        : 'Creation mode active. Tap the reticle to place new bubbles.');
+        ? 'Listening mode active. Walk through the space and hear all active bubbles blend together.'
+        : 'Creation mode active. Tap the reticle to place more sources in your environment.');
     }
 
-    function updateUiState() {
-      modeBadge.textContent = isListeningMode ? 'Listening mode' : 'Creation mode';
-      clearBtn.disabled = bubbles.length === 0;
+    function updateUi() {
+      const hasAudio = audioLibrary.length > 0;
+      const selectedAsset = getSelectedAsset();
+
       fileLabel.classList.toggle('disabled', false);
+      clearBtn.disabled = bubbles.length === 0;
+      audioSelect.disabled = !hasAudio;
+      libraryBadge.textContent = `${audioLibrary.length} file${audioLibrary.length === 1 ? '' : 's'}`;
+
       if (!navigator.xr) {
         enterArBtn.disabled = true;
       }
+
+      if (selectedAsset) {
+        audioSelect.value = selectedAsset.id;
+      }
+    }
+
+    function getSelectedAsset() {
+      return audioLibrary.find((asset) => asset.id === selectedAssetId) || null;
     }
 
     function onWindowResize() {
@@ -573,22 +689,25 @@
     }
 
     function updateHitTest(frame) {
-      if (!xrSession || !hitTestSourceRequested || !frame || !referenceSpace || !hitTestSource) {
+      if (!xrSession || !frame || !referenceSpace || !hitTestSource) {
         reticle.visible = false;
         return;
       }
 
-      const hitTestResults = frame.getHitTestResults(hitTestSource);
-      if (hitTestResults.length > 0) {
-        const pose = hitTestResults[0].getPose(referenceSpace);
-        if (pose) {
-          reticle.visible = !isListeningMode;
-          reticle.matrix.fromArray(pose.transform.matrix);
-          return;
-        }
+      const hitResults = frame.getHitTestResults(hitTestSource);
+      if (!hitResults.length) {
+        reticle.visible = false;
+        return;
       }
 
-      reticle.visible = false;
+      const pose = hitResults[0].getPose(referenceSpace);
+      if (!pose) {
+        reticle.visible = false;
+        return;
+      }
+
+      reticle.visible = !isListeningMode;
+      reticle.matrix.fromArray(pose.transform.matrix);
     }
 
     function updateListener() {
@@ -599,60 +718,64 @@
       camera.getWorldPosition(listenerPosition);
       camera.getWorldQuaternion(listenerQuaternion);
 
-      const forward = listenerForward.clone().applyQuaternion(listenerQuaternion).normalize();
-      const up = listenerUp.clone().applyQuaternion(listenerQuaternion).normalize();
+      tempForward.copy(listenerForward).applyQuaternion(listenerQuaternion).normalize();
+      tempUp.copy(listenerUp).applyQuaternion(listenerQuaternion).normalize();
+
       const listener = audioContext.listener;
-      const t = audioContext.currentTime;
+      const now = audioContext.currentTime;
 
       if (listener.positionX) {
-        listener.positionX.setValueAtTime(listenerPosition.x, t);
-        listener.positionY.setValueAtTime(listenerPosition.y, t);
-        listener.positionZ.setValueAtTime(listenerPosition.z, t);
-        listener.forwardX.setValueAtTime(forward.x, t);
-        listener.forwardY.setValueAtTime(forward.y, t);
-        listener.forwardZ.setValueAtTime(forward.z, t);
-        listener.upX.setValueAtTime(up.x, t);
-        listener.upY.setValueAtTime(up.y, t);
-        listener.upZ.setValueAtTime(up.z, t);
+        listener.positionX.setValueAtTime(listenerPosition.x, now);
+        listener.positionY.setValueAtTime(listenerPosition.y, now);
+        listener.positionZ.setValueAtTime(listenerPosition.z, now);
+        listener.forwardX.setValueAtTime(tempForward.x, now);
+        listener.forwardY.setValueAtTime(tempForward.y, now);
+        listener.forwardZ.setValueAtTime(tempForward.z, now);
+        listener.upX.setValueAtTime(tempUp.x, now);
+        listener.upY.setValueAtTime(tempUp.y, now);
+        listener.upZ.setValueAtTime(tempUp.z, now);
       } else {
         listener.setPosition(listenerPosition.x, listenerPosition.y, listenerPosition.z);
-        listener.setOrientation(forward.x, forward.y, forward.z, up.x, up.y, up.z);
+        listener.setOrientation(tempForward.x, tempForward.y, tempForward.z, tempUp.x, tempUp.y, tempUp.z);
       }
     }
 
     function updateBubbles(delta, elapsedTime) {
       for (const bubble of bubbles) {
         const bob = Math.sin(elapsedTime * FLOAT_SPEED + bubble.seed) * FLOAT_HEIGHT;
-        const driftX = Math.sin(elapsedTime * 0.31 + bubble.seed * 1.7) * DRIFT_AMOUNT;
-        const driftZ = Math.cos(elapsedTime * 0.27 + bubble.seed * 1.3) * DRIFT_AMOUNT;
+        const driftX = Math.sin(elapsedTime * 0.33 + bubble.seed * 1.8) * DRIFT_AMOUNT;
+        const driftZ = Math.cos(elapsedTime * 0.27 + bubble.seed * 1.4) * DRIFT_AMOUNT;
 
-        bubbleVisualOffset.set(driftX, bob, driftZ);
-        bubble.sphere.position.copy(bubbleVisualOffset);
-        bubble.glow.position.copy(bubbleVisualOffset);
-        bubble.glow.scale.setScalar(1 + Math.sin(elapsedTime * 0.9 + bubble.seed) * 0.05);
-        bubble.sphere.scale.setScalar(1 + Math.sin(elapsedTime * 1.3 + bubble.seed) * 0.02);
-        bubble.root.rotation.y += delta * 0.25;
+        bubbleOffset.set(driftX, bob, driftZ);
+        bubble.sphere.position.copy(bubbleOffset);
+        bubble.glow.position.copy(bubbleOffset);
+        bubble.glow.scale.setScalar(1 + Math.sin(elapsedTime * 0.8 + bubble.seed) * 0.06);
+        bubble.sphere.scale.setScalar(1 + Math.sin(elapsedTime * 1.1 + bubble.seed) * 0.02);
+        bubble.root.rotation.y += delta * 0.2;
 
-        if (!bubble.audio) {
+        bubble.root.getWorldPosition(bubblePosition);
+        bubblePosition.add(bubbleOffset);
+
+        const distance = bubblePosition.distanceTo(listenerPosition);
+        const targetGain = THREE.MathUtils.clamp(1 - distance / MAX_AUDIBLE_DISTANCE, 0.02, 1);
+        const now = audioContext ? audioContext.currentTime : 0;
+
+        if (bubble.audio?.gain) {
+          bubble.audio.gain.gain.cancelScheduledValues(now);
+          bubble.audio.gain.gain.setTargetAtTime(targetGain, now, 0.1);
+        }
+
+        const panner = bubble.audio?.panner;
+        if (!panner) {
           continue;
         }
 
-        bubble.root.getWorldPosition(bubbleWorldPosition);
-        bubbleWorldPosition.add(bubbleVisualOffset);
-
-        const distance = bubbleWorldPosition.distanceTo(listenerPosition);
-        const targetGain = THREE.MathUtils.clamp(1 - distance / 8, 0.03, 1);
-        const now = audioContext.currentTime;
-        bubble.audio.gain.gain.cancelScheduledValues(now);
-        bubble.audio.gain.gain.setTargetAtTime(targetGain, now, 0.08);
-
-        const { panner } = bubble.audio;
         if (panner.positionX) {
-          panner.positionX.setValueAtTime(bubbleWorldPosition.x, now);
-          panner.positionY.setValueAtTime(bubbleWorldPosition.y, now);
-          panner.positionZ.setValueAtTime(bubbleWorldPosition.z, now);
+          panner.positionX.setValueAtTime(bubblePosition.x, now);
+          panner.positionY.setValueAtTime(bubblePosition.y, now);
+          panner.positionZ.setValueAtTime(bubblePosition.z, now);
         } else {
-          panner.setPosition(bubbleWorldPosition.x, bubbleWorldPosition.y, bubbleWorldPosition.z);
+          panner.setPosition(bubblePosition.x, bubblePosition.y, bubblePosition.z);
         }
       }
     }
