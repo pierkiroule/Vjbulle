@@ -184,7 +184,7 @@
         position: absolute;
         left: max(12px, env(safe-area-inset-left));
         right: max(12px, env(safe-area-inset-right));
-        bottom: calc(12px + env(safe-area-inset-bottom));
+        bottom: calc(76px + env(safe-area-inset-bottom));
         width: auto;
         max-width: 100%;
         pointer-events: auto;
@@ -200,7 +200,7 @@
       .panel {
         display: grid;
         gap: 12px;
-        max-height: min(68vh, 760px);
+        max-height: min(46vh, 420px);
         overflow: hidden;
         padding: 14px;
         border-radius: 24px;
@@ -459,14 +459,7 @@
       }
 
       .status-stack {
-        position: absolute;
-        left: max(16px, env(safe-area-inset-left));
-        right: max(16px, env(safe-area-inset-right));
-        top: calc(max(14px, env(safe-area-inset-top)) + 112px);
-        display: grid;
-        gap: 8px;
-        justify-items: stretch;
-        pointer-events: auto;
+        display: none;
       }
 
       .chip {
@@ -480,6 +473,16 @@
         border: 1px solid rgba(255, 255, 255, 0.12);
         background: var(--panel);
         box-shadow: var(--shadow);
+      }
+
+      .overlay.is-ar .intro {
+        opacity: 0;
+        transform: translateY(-16px);
+        pointer-events: none;
+      }
+
+      .overlay.is-ar .panel {
+        max-height: min(34vh, 320px);
       }
 
       .chip::before {
@@ -542,14 +545,6 @@
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
-        .status-stack {
-          left: auto;
-          right: max(16px, env(safe-area-inset-right));
-          top: max(16px, env(safe-area-inset-top));
-          width: auto;
-          justify-items: end;
-        }
-
         .chip {
           width: auto;
         }
@@ -557,13 +552,13 @@
         .panel-shell {
           left: max(16px, env(safe-area-inset-left));
           right: max(16px, env(safe-area-inset-right));
-          bottom: calc(16px + env(safe-area-inset-bottom));
+          bottom: calc(88px + env(safe-area-inset-bottom));
           width: min(440px, calc(100vw - 32px));
         }
 
         .panel {
           gap: 14px;
-          max-height: min(78vh, 760px);
+          max-height: min(48vh, 420px);
           padding: 16px;
           border-radius: var(--radius-xl);
         }
