@@ -56,12 +56,15 @@ strong {
 .app-shell,
 .scene-host,
 .scene-host canvas,
+.dom-overlay-root,
 .overlay-root {
   position: fixed;
   inset: 0;
 }
 
 .app-shell {
+  position: fixed;
+  inset: 0;
   isolation: isolate;
 }
 
@@ -71,10 +74,18 @@ strong {
 
 .scene-host canvas {
   display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.dom-overlay-root {
+  z-index: 2;
+  background: transparent;
+  pointer-events: none;
 }
 
 .overlay-root {
-  z-index: 2;
+  background: transparent;
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: 12px;

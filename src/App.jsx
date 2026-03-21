@@ -88,137 +88,139 @@ function App() {
     <div className="app-shell" onPointerDown={pingHud}>
       <div ref={sceneHostRef} className="scene-host" aria-hidden="true" />
 
-      <div ref={overlayRootRef} className={`overlay-root ${isSessionActive ? 'is-ar' : ''}`}>
-        <div className="top-hud top-hud--minimal">
-          <div className="glass-pill hud-status hud-status--compact">
-            <div>
-              <span className="hud-label">AR Bubble Looper</span>
-              <strong>{bpm} BPM · {bubbleCount}/8 bulles</strong>
+      <div ref={overlayRootRef} className="dom-overlay-root">
+        <div className={`overlay-root ${isSessionActive ? 'is-ar' : ''}`}>
+          <div className="top-hud top-hud--minimal">
+            <div className="glass-pill hud-status hud-status--compact">
+              <div>
+                <span className="hud-label">AR Bubble Looper</span>
+                <strong>{bpm} BPM · {bubbleCount}/8 bulles</strong>
+              </div>
+            </div>
+
+            <div className="hud-actions">
+              {!!bubbleCount && (
+                <button type="button" className="action-button" onClick={() => clearAllBubbles(true)}>
+                  Vider
+                </button>
+              )}
+              <button type="button" className="primary-button" onClick={enterAr} disabled={isBusy || (!isArSupported && !isSessionActive)}>
+                {isSessionActive ? 'Quitter AR' : isBusy ? 'Starting…' : 'Entrer AR'}
+              </button>
             </div>
           </div>
 
-          <div className="hud-actions">
-            {!!bubbleCount && (
-              <button type="button" className="action-button" onClick={() => clearAllBubbles(true)}>
-                Vider
-              </button>
+          <div className="panel-stack" aria-live="polite">
+            {!isArSupported && !isSessionActive && (
+              <div className="glass-pill availability-banner availability-banner--inline">
+                {availabilityMessage}
+              </div>
             )}
-            <button type="button" className="primary-button" onClick={enterAr} disabled={isBusy || (!isArSupported && !isSessionActive)}>
-              {isSessionActive ? 'Quitter AR' : isBusy ? 'Starting…' : 'Entrer AR'}
-            </button>
-          </div>
-        </div>
 
-        <div className="panel-stack" aria-live="polite">
-          {!isArSupported && !isSessionActive && (
-            <div className="glass-pill availability-banner availability-banner--inline">
-              {availabilityMessage}
-            </div>
-          )}
-
-          {!!pendingPadId && (
-            <div className="glass-sheet source-sheet source-sheet--inline source-sheet--compact">
-              <div className="sheet-head">
-                <div>
-                  <span className="hud-label">Pad {pendingPadId.split('-').at(-1)}</span>
-                  <strong>{filledPadIds.has(pendingPadId) ? 'Remplacer le sample' : 'Ajouter un sample'}</strong>
-                </div>
-                <button type="button" className="icon-button" onClick={() => setPendingPadId('')} disabled={isRecordingMic} aria-label="Fermer l’édition du pad">
-                  ✕
-                </button>
-              </div>
-              <div className="mini-menu__actions">
-                <button
-                  type="button"
-                  className="action-button"
-                  onClick={() => openFilePickerForPad(pendingPadId, fileInputRef.current)}
-                >
-                  Import
-                </button>
-                <button
-                  type="button"
-                  className={`action-button ${isRecordingMic ? 'action-button--danger' : ''}`}
-                  onClick={() => toggleMicRecording(pendingPadId)}
-                >
-                  {isRecordingMic ? 'Stop mic' : 'Micro'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {!!bubbleCount && (
-            <div className="glass-sheet bubble-sheet">
-              <div className="sheet-head">
-                <div>
-                  <span className="hud-label">Bulles actives</span>
-                  <strong>{bubbleCount} loop{bubbleCount > 1 ? 's' : ''} dans l’espace</strong>
-                </div>
-                <button type="button" className="action-button action-button--ghost" onClick={() => clearAllBubbles(true)}>
-                  Tout vider
-                </button>
-              </div>
-
-              <div className="bubble-list" role="list" aria-label="Bulles audio">
-                {placedBubbles.map((bubble) => (
-                  <div key={bubble.id} className="bubble-row" role="listitem">
-                    <div className="bubble-row__copy">
-                      <strong>{bubble.label}</strong>
-                      <span>{bubble.attached ? 'Collée à la caméra' : 'Libre dans la scène'}</span>
-                    </div>
-
-                    <button
-                      type="button"
-                      className="action-button action-button--ghost"
-                      onClick={() => toggleBubbleAttachment(bubble.id)}
-                    >
-                      {bubble.attached ? 'Décoller' : 'Coller'}
-                    </button>
-
-                    <button
-                      type="button"
-                      className="action-button action-button--danger"
-                      onClick={() => popBubble(bubble.id)}
-                    >
-                      Supprimer
-                    </button>
+            {!!pendingPadId && (
+              <div className="glass-sheet source-sheet source-sheet--inline source-sheet--compact">
+                <div className="sheet-head">
+                  <div>
+                    <span className="hud-label">Pad {pendingPadId.split('-').at(-1)}</span>
+                    <strong>{filledPadIds.has(pendingPadId) ? 'Remplacer le sample' : 'Ajouter un sample'}</strong>
                   </div>
-                ))}
+                  <button type="button" className="icon-button" onClick={() => setPendingPadId('')} disabled={isRecordingMic} aria-label="Fermer l’édition du pad">
+                    ✕
+                  </button>
+                </div>
+                <div className="mini-menu__actions">
+                  <button
+                    type="button"
+                    className="action-button"
+                    onClick={() => openFilePickerForPad(pendingPadId, fileInputRef.current)}
+                  >
+                    Import
+                  </button>
+                  <button
+                    type="button"
+                    className={`action-button ${isRecordingMic ? 'action-button--danger' : ''}`}
+                    onClick={() => toggleMicRecording(pendingPadId)}
+                  >
+                    {isRecordingMic ? 'Stop mic' : 'Micro'}
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
 
-        <div className="bottom-hud bottom-hud--minimal">
-          <div className="glass-pill compact-instructions compact-instructions--inline compact-instructions--minimal">
-            <strong>{readiness}</strong>
+            {!!bubbleCount && (
+              <div className="glass-sheet bubble-sheet">
+                <div className="sheet-head">
+                  <div>
+                    <span className="hud-label">Bulles actives</span>
+                    <strong>{bubbleCount} loop{bubbleCount > 1 ? 's' : ''} dans l’espace</strong>
+                  </div>
+                  <button type="button" className="action-button action-button--ghost" onClick={() => clearAllBubbles(true)}>
+                    Tout vider
+                  </button>
+                </div>
+
+                <div className="bubble-list" role="list" aria-label="Bulles audio">
+                  {placedBubbles.map((bubble) => (
+                    <div key={bubble.id} className="bubble-row" role="listitem">
+                      <div className="bubble-row__copy">
+                        <strong>{bubble.label}</strong>
+                        <span>{bubble.attached ? 'Collée à la caméra' : 'Libre dans la scène'}</span>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="action-button action-button--ghost"
+                        onClick={() => toggleBubbleAttachment(bubble.id)}
+                      >
+                        {bubble.attached ? 'Décoller' : 'Coller'}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="action-button action-button--danger"
+                        onClick={() => popBubble(bubble.id)}
+                      >
+                        Supprimer
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="pad-carousel" role="list" aria-label="Pads audio">
-            {pads.map((pad) => (
-              <button
-                key={pad.id}
-                type="button"
-                role="listitem"
-                className={`pad-card ${pad.buffer ? 'is-filled' : 'is-empty'} ${pendingPadId === pad.id ? 'is-pending' : ''}`}
-                onPointerDown={() => handlePadPointerDown(pad)}
-                onPointerUp={handlePadPointerUp}
-                onPointerLeave={handlePadPointerUp}
-                onClick={() => handlePadClick(pad)}
-              >
-                <span className="pad-card__index">Pad {pad.label}</span>
-                <strong>{pad.name || 'Empty'}</strong>
-                <span className="pad-card__meta">{formatPadMeta(pad)}</span>
-              </button>
+          <div className="bottom-hud bottom-hud--minimal">
+            <div className="glass-pill compact-instructions compact-instructions--inline compact-instructions--minimal">
+              <strong>{readiness}</strong>
+            </div>
+
+            <div className="pad-carousel" role="list" aria-label="Pads audio">
+              {pads.map((pad) => (
+                <button
+                  key={pad.id}
+                  type="button"
+                  role="listitem"
+                  className={`pad-card ${pad.buffer ? 'is-filled' : 'is-empty'} ${pendingPadId === pad.id ? 'is-pending' : ''}`}
+                  onPointerDown={() => handlePadPointerDown(pad)}
+                  onPointerUp={handlePadPointerUp}
+                  onPointerLeave={handlePadPointerUp}
+                  onClick={() => handlePadClick(pad)}
+                >
+                  <span className="pad-card__index">Pad {pad.label}</span>
+                  <strong>{pad.name || 'Empty'}</strong>
+                  <span className="pad-card__meta">{formatPadMeta(pad)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="toast-stack" aria-live="polite" aria-atomic="true">
+            {toasts.map((toast) => (
+              <div key={toast.id} className={`toast toast--${toast.tone}`}>
+                {toast.message}
+              </div>
             ))}
           </div>
-        </div>
-
-        <div className="toast-stack" aria-live="polite" aria-atomic="true">
-          {toasts.map((toast) => (
-            <div key={toast.id} className={`toast toast--${toast.tone}`}>
-              {toast.message}
-            </div>
-          ))}
         </div>
       </div>
 

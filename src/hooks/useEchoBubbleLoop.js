@@ -717,6 +717,7 @@ export function useEchoBubbleLoop() {
 
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x000000, 0);
     renderer.xr.enabled = true;
 
     if (sceneHostRef.current) {
