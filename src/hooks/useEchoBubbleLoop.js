@@ -1,20 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 
+const MAX_PADS = 8;
 const MAX_BUBBLES = 8;
-const MAX_SET_BUBBLES = 3;
-const FLOAT_SPEED = 0.68;
-const FLOAT_HEIGHT = 0.028;
-const DRIFT_AMOUNT = 0.013;
 const DEFAULT_RANGE = 6;
-const MIN_RANGE = 2;
-const MAX_RANGE = 18;
-const DEFAULT_VOLUME = 70;
+const DEFAULT_GAIN = 0.3;
+const DEFAULT_BPM = 90;
 const PLACE_DISTANCE = 0.4;
-const FADE_TIME = 0.12;
-const ENTRY_DURATION = 0.72;
-const AUTO_HIDE_MS = 2600;
-const DEFAULT_TEMPO = 120;
+const LONG_PRESS_MS = 420;
+const FADE_TIME = 0.18;
+const FLOAT_RISE = 0.018;
+const FLOAT_SWAY = 0.012;
+const BUBBLE_RADIUS = 0.088;
+const AUTO_HIDE_MS = 2200;
 
 const listenerPosition = new THREE.Vector3();
 const listenerQuaternion = new THREE.Quaternion();
@@ -22,43 +20,65 @@ const listenerForward = new THREE.Vector3(0, 0, -1);
 const listenerUp = new THREE.Vector3(0, 1, 0);
 const tempForward = new THREE.Vector3();
 const tempUp = new THREE.Vector3();
-const placementOrigin = new THREE.Vector3();
-const bubbleOffset = new THREE.Vector3();
-const bubblePosition = new THREE.Vector3();
-
-function easeOutBack(t) {
-  const c1 = 1.70158;
-  const c3 = c1 + 1;
-  return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
-}
+const tempPosition = new THREE.Vector3();
+const tempTarget = new THREE.Vector3();
+const bubbleVisualOffset = new THREE.Vector3();
+const bubbleWorldPosition = new THREE.Vector3();
+const rayOrigin = new THREE.Vector3();
+const rayDirection = new THREE.Vector3();
+const raycaster = new THREE.Raycaster();
 
 function createToast(id, tone, message) {
   return { id, tone, message };
 }
 
-function clampRange(value) {
-  return THREE.MathUtils.clamp(Number(value) || DEFAULT_RANGE, MIN_RANGE, MAX_RANGE);
-}
-
-function clampVolume(value) {
-  return THREE.MathUtils.clamp(Number(value) || DEFAULT_VOLUME, 0, 100);
-}
-
-function clampTempo(value) {
-  return THREE.MathUtils.clamp(Number(value) || DEFAULT_TEMPO, 70, 160);
-}
-
-function createSetBubbleDefinition(id, assetId = '') {
+function createPad(index) {
   return {
-    id,
-    label: `Pad ${id.split('-').at(-1)}`,
-    assetId,
-    range: DEFAULT_RANGE,
-    volume: DEFAULT_VOLUME,
-    loopBars: 2,
-    tempo: DEFAULT_TEMPO,
-    syncMode: 'Auto',
+    id: `pad-${index + 1}`,
+    label: `${index + 1}`,
+    name: '',
+    url: '',
+    buffer: null,
+    bpm: DEFAULT_BPM,
+    loopEnd: 0,
+    gain: DEFAULT_GAIN,
+    duration: 0,
+    bars: 1,
+    sourceType: '',
   };
+}
+
+function pickSmartLoop(duration) {
+  const safeDuration = Math.max(duration || 0, 0.01);
+  const options = [];
+
+  for (let bpm = 70; bpm <= 160; bpm += 1) {
+    const beatDuration = 60 / bpm;
+    for (const bars of [1, 2, 4]) {
+      const loopDuration = bars * 4 * beatDuration;
+      const diff = Math.abs(safeDuration - loopDuration);
+      const overPenalty = loopDuration > safeDuration ? (loopDuration - safeDuration) * 1.35 : 0;
+      const score = diff + overPenalty;
+      options.push({ bpm, bars, loopDuration, score });
+    }
+  }
+
+  options.sort((left, right) => left.score - right.score);
+  const best = options[0];
+  const loopEnd = Math.min(safeDuration, best.loopDuration);
+
+  return {
+    bpm: best.bpm,
+    bars: best.bars,
+    loopEnd: Number(loopEnd.toFixed(3)),
+    gain: DEFAULT_GAIN,
+  };
+}
+
+async function decodeAudioFile(file, audioContext) {
+  const arrayBuffer = await file.arrayBuffer();
+  const buffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+  return buffer;
 }
 
 export function useEchoBubbleLoop() {
@@ -69,77 +89,34 @@ export function useEchoBubbleLoop() {
   const cameraRef = useRef(null);
   const frameClockRef = useRef(new THREE.Clock());
   const bubblesRef = useRef([]);
+  const xrSessionRef = useRef(null);
   const audioContextRef = useRef(null);
   const masterGainRef = useRef(null);
-  const xrSessionRef = useRef(null);
-  const previewAudioRef = useRef(null);
-  const previewStopTimerRef = useRef(0);
-  const assetCounterRef = useRef(0);
-  const bubbleCounterRef = useRef(0);
-  const setBubbleCounterRef = useRef(0);
-  const toastCounterRef = useRef(0);
-  const dismissTimerRef = useRef(0);
   const hideHudTimerRef = useRef(0);
-  const audioLibraryRef = useRef([]);
+  const dismissTimerRef = useRef(0);
+  const toastCounterRef = useRef(0);
+  const bubbleCounterRef = useRef(0);
+  const selectStartTimeRef = useRef(0);
+  const inputTargetPadRef = useRef('');
   const mediaRecorderRef = useRef(null);
   const micStreamRef = useRef(null);
   const micChunksRef = useRef([]);
 
-  const [audioLibrary, setAudioLibrary] = useState([]);
-  const [selectedAssetId, setSelectedAssetId] = useState('');
-  const [setBubbles, setSetBubbles] = useState(() => [
-    createSetBubbleDefinition('set-bubble-1'),
-    createSetBubbleDefinition('set-bubble-2'),
-    createSetBubbleDefinition('set-bubble-3'),
-  ]);
-  const [activeSetBubbleId, setActiveSetBubbleId] = useState('set-bubble-1');
-  const [interactionMode, setInteractionModeState] = useState('blower');
+  const [pads, setPads] = useState(() => Array.from({ length: MAX_PADS }, (_, index) => createPad(index)));
   const [isArSupported, setIsArSupported] = useState(true);
   const [availabilityMessage, setAvailabilityMessage] = useState('');
   const [isSessionActive, setIsSessionActive] = useState(false);
+  const [isBusy, setIsBusy] = useState(false);
   const [bubbleCount, setBubbleCount] = useState(0);
   const [toasts, setToasts] = useState([]);
   const [isHudVisible, setIsHudVisible] = useState(true);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isBusy, setIsBusy] = useState(false);
-  const [isPlacementArmed, setIsPlacementArmed] = useState(false);
-  const [previewingId, setPreviewingId] = useState('');
-  const [playingBubbleId, setPlayingBubbleId] = useState('');
-  const [selectedPlacedBubbleId, setSelectedPlacedBubbleId] = useState('');
-  const [placedBubbleRevision, setPlacedBubbleRevision] = useState(0);
+  const [pendingPadId, setPendingPadId] = useState('');
   const [isRecordingMic, setIsRecordingMic] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [placedBubbleRevision, setPlacedBubbleRevision] = useState(0);
 
-  const selectedAsset = useMemo(
-    () => audioLibrary.find((asset) => asset.id === selectedAssetId) ?? null,
-    [audioLibrary, selectedAssetId],
-  );
-
-  const selectedSetBubble = useMemo(
-    () => setBubbles.find((bubble) => bubble.id === activeSetBubbleId) ?? null,
-    [activeSetBubbleId, setBubbles],
-  );
-
-  const placedBubbles = useMemo(
-    () => bubblesRef.current.map((bubble) => ({
-      id: bubble.id,
-      label: bubble.label,
-      assetName: bubble.assetName,
-      range: bubble.range,
-      volume: bubble.volume,
-      isPlaying: !bubble.audio?.element?.paused,
-    })),
-    [bubbleCount, placedBubbleRevision, playingBubbleId, selectedPlacedBubbleId],
-  );
-
-  const selectedPlacedBubble = useMemo(
-    () => placedBubbles.find((bubble) => bubble.id === selectedPlacedBubbleId) ?? null,
-    [placedBubbles, selectedPlacedBubbleId],
-  );
-
-  const readyPadCount = useMemo(
-    () => setBubbles.filter((bubble) => bubble.assetId).length,
-    [setBubbles],
-  );
+  const bpm = DEFAULT_BPM;
+  const beatDuration = 60 / bpm;
 
   const postToast = useCallback((message, tone = 'neutral') => {
     const id = ++toastCounterRef.current;
@@ -148,32 +125,31 @@ export function useEchoBubbleLoop() {
     window.clearTimeout(dismissTimerRef.current);
     dismissTimerRef.current = window.setTimeout(() => {
       setToasts((current) => current.filter((toast) => toast.id !== id));
-    }, 2400);
+    }, 2200);
   }, []);
 
   const pingHud = useCallback(() => {
     setIsHudVisible(true);
     window.clearTimeout(hideHudTimerRef.current);
 
-    if (xrSessionRef.current && !isMenuOpen) {
+    if (xrSessionRef.current && !menuOpen) {
       hideHudTimerRef.current = window.setTimeout(() => {
         setIsHudVisible(false);
       }, AUTO_HIDE_MS);
     }
-  }, [isMenuOpen]);
+  }, [menuOpen]);
 
   const ensureAudioContext = useCallback(async () => {
     if (!audioContextRef.current) {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       if (!AudioContextClass) {
-        throw new Error('Web Audio API is unavailable in this browser.');
+        throw new Error('Web Audio API unavailable.');
       }
 
       const context = new AudioContextClass({ latencyHint: 'interactive' });
       const masterGain = context.createGain();
-      masterGain.gain.value = 0.88;
+      masterGain.gain.value = 0.92;
       masterGain.connect(context.destination);
-
       audioContextRef.current = context;
       masterGainRef.current = masterGain;
     }
@@ -185,57 +161,21 @@ export function useEchoBubbleLoop() {
     return audioContextRef.current;
   }, []);
 
-  const stopPreview = useCallback(() => {
-    window.clearTimeout(previewStopTimerRef.current);
-    previewStopTimerRef.current = 0;
-
-    const previewAudio = previewAudioRef.current;
-    if (!previewAudio) {
-      return;
-    }
-
-    previewAudio.pause();
-    previewAudio.currentTime = 0;
-    previewAudio.src = '';
-    previewAudioRef.current = null;
-    setPreviewingId('');
+  const updatePad = useCallback((padId, patch) => {
+    setPads((current) => current.map((pad) => (pad.id === padId ? { ...pad, ...patch } : pad)));
   }, []);
 
-  const playLibraryPreview = useCallback((asset, previewId = asset?.id ?? '') => {
-    stopPreview();
-
-    if (!asset) {
-      return false;
-    }
-
-    const preview = new Audio(asset.url);
-    preview.preload = 'auto';
-    preview.playsInline = true;
-    preview.volume = 0.8;
-
-    previewAudioRef.current = preview;
-    setPreviewingId(previewId);
-    previewStopTimerRef.current = window.setTimeout(() => {
-      stopPreview();
-    }, 1600);
-
-    preview.play().catch(() => {
-      stopPreview();
-      postToast(`Preview unavailable for ${asset.name}.`, 'warning');
-    });
-
-    return true;
-  }, [postToast, stopPreview]);
-
-  const disposeBubbleAudio = useCallback((audio) => {
+  const disposeBubbleAudio = useCallback((audio, stopAt) => {
     if (!audio) {
       return;
     }
 
-    const { element, source, gain, panner } = audio;
-    element.pause();
-    element.src = '';
-    element.load();
+    const { source, gain, panner } = audio;
+    try {
+      source.stop(stopAt);
+    } catch {
+      source.stop();
+    }
     source.disconnect();
     gain.disconnect();
     panner.disconnect();
@@ -248,7 +188,7 @@ export function useEchoBubbleLoop() {
 
     const scene = sceneRef.current;
     const context = audioContextRef.current;
-    const now = context ? context.currentTime : 0;
+    const now = context?.currentTime ?? 0;
 
     if (fadeOut && bubble.audio?.gain && context) {
       bubble.audio.gain.gain.cancelScheduledValues(now);
@@ -269,320 +209,361 @@ export function useEchoBubbleLoop() {
       }
     });
 
-    if (playingBubbleId === bubble.id) {
-      setPlayingBubbleId('');
-    }
-
-    if (selectedPlacedBubbleId === bubble.id) {
-      setSelectedPlacedBubbleId('');
-    }
-
-    window.setTimeout(() => disposeBubbleAudio(bubble.audio), fadeOut ? 180 : 0);
-  }, [disposeBubbleAudio, playingBubbleId, selectedPlacedBubbleId]);
+    window.setTimeout(() => {
+      disposeBubbleAudio(bubble.audio, fadeOut && context ? now + FADE_TIME * 3 : undefined);
+    }, fadeOut ? 220 : 0);
+  }, [disposeBubbleAudio]);
 
   const clearAllBubbles = useCallback((notify = true) => {
-    const existing = bubblesRef.current.splice(0, bubblesRef.current.length);
-    existing.forEach((bubble) => destroyBubble(bubble, true));
+    const bubbles = bubblesRef.current.splice(0, bubblesRef.current.length);
+    bubbles.forEach((bubble) => destroyBubble(bubble, true));
     setBubbleCount(0);
-    setPlayingBubbleId('');
-    setSelectedPlacedBubbleId('');
-    setIsPlacementArmed(false);
-
+    setPlacedBubbleRevision((current) => current + 1);
     if (notify) {
-      postToast('Toutes les bulles live ont été retirées.', 'neutral');
+      postToast('Bulles audio supprimées.', 'neutral');
     }
   }, [destroyBubble, postToast]);
 
-  const createBubbleAudio = useCallback((asset, volume, range) => {
-    const context = audioContextRef.current;
-    if (!context || !masterGainRef.current) {
-      throw new Error('Audio context is not ready.');
+  const assignDecodedSampleToPad = useCallback((padId, { name, url, buffer, sourceType }) => {
+    const smartSample = pickSmartLoop(buffer.duration);
+    updatePad(padId, {
+      name,
+      url,
+      buffer,
+      duration: buffer.duration,
+      sourceType,
+      bpm: smartSample.bpm,
+      bars: smartSample.bars,
+      loopEnd: smartSample.loopEnd,
+      gain: smartSample.gain,
+    });
+
+    setPendingPadId('');
+    postToast(`${name} → pad ${padId.split('-').at(-1)}. Loop auto ${smartSample.bars} bar · ${smartSample.bpm} BPM.`, 'success');
+  }, [postToast, updatePad]);
+
+  const importAudioFileToPad = useCallback(async (padId, file) => {
+    if (!file) {
+      return;
     }
 
-    const element = document.createElement('audio');
-    element.src = asset.url;
-    element.loop = true;
-    element.preload = 'auto';
-    element.playsInline = true;
+    try {
+      const context = await ensureAudioContext();
+      const buffer = await decodeAudioFile(file, context);
+      const url = URL.createObjectURL(file);
+      const previous = pads.find((pad) => pad.id === padId);
+      if (previous?.url) {
+        URL.revokeObjectURL(previous.url);
+      }
+      assignDecodedSampleToPad(padId, {
+        name: file.name,
+        url,
+        buffer,
+        sourceType: 'file',
+      });
+    } catch (error) {
+      postToast(`Import impossible: ${error.message}`, 'warning');
+    }
+  }, [assignDecodedSampleToPad, ensureAudioContext, pads, postToast]);
 
-    const source = context.createMediaElementSource(element);
+  const handleImportedFiles = useCallback(async (files) => {
+    const [file] = files;
+    if (!file || !inputTargetPadRef.current) {
+      return;
+    }
+
+    await importAudioFileToPad(inputTargetPadRef.current, file);
+    inputTargetPadRef.current = '';
+  }, [importAudioFileToPad]);
+
+  const toggleMicRecording = useCallback(async (padId) => {
+    if (!isRecordingMic) {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        postToast('Micro indisponible.', 'warning');
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const recorder = new MediaRecorder(stream);
+        micStreamRef.current = stream;
+        mediaRecorderRef.current = recorder;
+        micChunksRef.current = [];
+        inputTargetPadRef.current = padId;
+
+        recorder.addEventListener('dataavailable', (event) => {
+          if (event.data?.size) {
+            micChunksRef.current.push(event.data);
+          }
+        });
+
+        recorder.addEventListener('stop', async () => {
+          const targetPadId = inputTargetPadRef.current;
+          const chunks = micChunksRef.current;
+          micChunksRef.current = [];
+          setIsRecordingMic(false);
+
+          if (!chunks.length || !targetPadId) {
+            stream.getTracks().forEach((track) => track.stop());
+            inputTargetPadRef.current = '';
+            return;
+          }
+
+          const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+          const file = new File([blob], `mic-loop-${Date.now()}.webm`, { type: blob.type });
+          await importAudioFileToPad(targetPadId, file);
+
+          stream.getTracks().forEach((track) => track.stop());
+          micStreamRef.current = null;
+          mediaRecorderRef.current = null;
+          inputTargetPadRef.current = '';
+        });
+
+        recorder.start();
+        setPendingPadId(padId);
+        setIsRecordingMic(true);
+        postToast('Enregistrement micro lancé.', 'success');
+      } catch (error) {
+        postToast(`Micro bloqué: ${error.message}`, 'warning');
+      }
+      return;
+    }
+
+    mediaRecorderRef.current?.stop();
+  }, [importAudioFileToPad, isRecordingMic, postToast]);
+
+  const beginPadImport = useCallback((padId) => {
+    setPendingPadId(padId);
+    pingHud();
+  }, [pingHud]);
+
+  const openFilePickerForPad = useCallback((padId, fileInput) => {
+    inputTargetPadRef.current = padId;
+    fileInput?.click();
+  }, []);
+
+  const createBubbleAudio = useCallback((pad) => {
+    const context = audioContextRef.current;
+    if (!context || !masterGainRef.current || !pad.buffer) {
+      throw new Error('Loop audio indisponible.');
+    }
+
+    const source = context.createBufferSource();
+    source.buffer = pad.buffer;
+    source.loop = true;
+    source.loopStart = 0;
+    source.loopEnd = Math.max(0.05, Math.min(pad.loopEnd || pad.buffer.duration, pad.buffer.duration));
+
     const gain = context.createGain();
-    const panner = context.createPanner();
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
 
+    const panner = context.createPanner();
     panner.panningModel = 'HRTF';
     panner.distanceModel = 'inverse';
-    panner.refDistance = Math.max(0.35, range * 0.08);
-    panner.maxDistance = range;
-    panner.rolloffFactor = 1.25;
+    panner.refDistance = Math.max(0.35, DEFAULT_RANGE * 0.08);
+    panner.maxDistance = DEFAULT_RANGE;
+    panner.rolloffFactor = 1.15;
     panner.coneInnerAngle = 360;
     panner.coneOuterAngle = 0;
-
-    gain.gain.setValueAtTime(0.0001, context.currentTime);
 
     source.connect(gain);
     gain.connect(panner);
     panner.connect(masterGainRef.current);
 
-    element.volume = clampVolume(volume) / 100;
-    element.play().catch(() => {
-      postToast(`Playback blocked for ${asset.name}. Tap again to resume.`, 'warning');
-    });
+    const nextBeat = Math.ceil(context.currentTime / beatDuration) * beatDuration;
+    source.start(nextBeat);
 
-    return { element, source, gain, panner };
-  }, [postToast]);
+    return { source, gain, panner, nextBeat };
+  }, [beatDuration]);
 
-  const createBubble = useCallback((setBubble, asset) => {
+  const createBubble = useCallback((pad) => {
     const root = new THREE.Group();
-    const sphere = new THREE.Mesh(
-      new THREE.SphereGeometry(0.088, 24, 24),
+    const shell = new THREE.Mesh(
+      new THREE.SphereGeometry(BUBBLE_RADIUS, 24, 24),
       new THREE.MeshPhongMaterial({
-        color: 0x84dfff,
+        color: 0x8ce5ff,
         transparent: true,
-        opacity: 0.38,
-        shininess: 95,
-        emissive: 0x174760,
-        emissiveIntensity: 0.6,
-        specular: 0xcaf6ff,
+        opacity: 0.35,
+        shininess: 100,
+        emissive: 0x14465d,
+        emissiveIntensity: 0.52,
+        specular: 0xd7f7ff,
       }),
     );
 
     const glow = new THREE.Mesh(
-      new THREE.SphereGeometry(0.112, 20, 20),
+      new THREE.SphereGeometry(BUBBLE_RADIUS * 1.28, 20, 20),
       new THREE.MeshBasicMaterial({
-        color: 0x8ee7ff,
+        color: 0x9be9ff,
         transparent: true,
-        opacity: 0.09,
+        opacity: 0.08,
         depthWrite: false,
       }),
     );
 
     root.add(glow);
-    root.add(sphere);
+    root.add(shell);
+
+    const audio = createBubbleAudio(pad);
 
     return {
       id: `bubble-${++bubbleCounterRef.current}`,
-      setBubbleId: setBubble.id,
-      label: `${setBubble.label} · ${setBubble.loopBars}m`,
-      assetId: asset.id,
-      assetName: asset.name,
-      range: clampRange(setBubble.range),
-      volume: clampVolume(setBubble.volume),
+      padId: pad.id,
+      label: pad.name || `Pad ${pad.label}`,
+      root,
+      shell,
+      glow,
+      audio,
+      range: DEFAULT_RANGE,
+      gainMax: pad.gain,
       createdAt: performance.now() * 0.001,
       seed: Math.random() * Math.PI * 2,
-      root,
-      sphere,
-      glow,
-      audio: createBubbleAudio(asset, setBubble.volume, setBubble.range),
+      attached: false,
+      basePosition: new THREE.Vector3(),
+      visualPosition: new THREE.Vector3(),
+      velocity: new THREE.Vector3(
+        (Math.random() - 0.5) * 0.004,
+        FLOAT_RISE,
+        (Math.random() - 0.5) * 0.004,
+      ),
     };
   }, [createBubbleAudio]);
 
-  const placeBubble = useCallback((setBubble, asset) => {
+  const placeBubbleFromPad = useCallback(async (padId) => {
+    const pad = pads.find((item) => item.id === padId);
     const scene = sceneRef.current;
     const camera = cameraRef.current;
-    if (!scene || !camera) {
+
+    if (!pad?.buffer) {
+      beginPadImport(padId);
       return;
     }
 
-    const bubble = createBubble(setBubble, asset);
-
-    camera.getWorldPosition(placementOrigin);
-    camera.getWorldQuaternion(listenerQuaternion);
-    tempForward.copy(listenerForward).applyQuaternion(listenerQuaternion).normalize();
-
-    bubble.root.position.copy(placementOrigin).addScaledVector(tempForward, PLACE_DISTANCE);
-    bubble.root.quaternion.copy(listenerQuaternion);
-    bubble.root.scale.setScalar(0.001);
-
-    scene.add(bubble.root);
-    bubblesRef.current.push(bubble);
-
-    if (bubblesRef.current.length > MAX_BUBBLES) {
-      destroyBubble(bubblesRef.current.shift(), true);
-    }
-
-    setBubbleCount(bubblesRef.current.length);
-    setSelectedPlacedBubbleId(bubble.id);
-    setIsPlacementArmed(false);
-    postToast(`${setBubble.label} soufflé dans la scène. ${bubblesRef.current.length}/${MAX_BUBBLES} bulles live.`, 'success');
-  }, [createBubble, destroyBubble, postToast]);
-
-  const addSetBubble = useCallback(() => {
-    postToast(`Le sampler affiche déjà ses ${MAX_SET_BUBBLES} pads fixes.`, 'neutral');
-  }, [postToast]);
-
-  const updateSetBubble = useCallback((bubbleId, patch) => {
-    setSetBubbles((current) => current.map((bubble) => {
-      if (bubble.id !== bubbleId) {
-        return bubble;
-      }
-
-      return {
-        ...bubble,
-        ...patch,
-        range: patch.range !== undefined ? clampRange(patch.range) : bubble.range,
-        volume: patch.volume !== undefined ? clampVolume(patch.volume) : bubble.volume,
-        tempo: patch.tempo !== undefined ? clampTempo(patch.tempo) : bubble.tempo,
-      };
-    }));
-  }, []);
-
-  const updatePlacedBubble = useCallback((bubbleId, patch) => {
-    const bubble = bubblesRef.current.find((item) => item.id === bubbleId);
-    if (!bubble) {
-      return;
-    }
-
-    if (patch.range !== undefined) {
-      bubble.range = clampRange(patch.range);
-      if (bubble.audio?.panner) {
-        bubble.audio.panner.maxDistance = bubble.range;
-        bubble.audio.panner.refDistance = Math.max(0.35, bubble.range * 0.08);
-      }
-    }
-
-    if (patch.volume !== undefined) {
-      bubble.volume = clampVolume(patch.volume);
-      if (bubble.audio?.element) {
-        bubble.audio.element.volume = bubble.volume / 100;
-      }
-    }
-
-    setPlacedBubbleRevision((current) => current + 1);
-  }, []);
-
-  const removeSetBubble = useCallback((bubbleId) => {
-    setSetBubbles((current) => current.filter((bubble) => bubble.id !== bubbleId));
-    setActiveSetBubbleId((current) => (current === bubbleId ? '' : current));
-    postToast('Pad retiré du sampler.', 'neutral');
-  }, [postToast]);
-
-  const playSetBubblePreview = useCallback((bubbleId) => {
-    const setBubble = setBubbles.find((bubble) => bubble.id === bubbleId);
-    if (!setBubble?.assetId) {
-      postToast('Choisissez une source audio avant preview.', 'warning');
-      return;
-    }
-
-    const asset = audioLibrary.find((item) => item.id === setBubble.assetId);
-    if (!asset) {
-      postToast('Source audio introuvable.', 'warning');
-      return;
-    }
-
-    playLibraryPreview(asset, bubbleId);
-  }, [audioLibrary, playLibraryPreview, postToast, setBubbles]);
-
-  const togglePlacedBubbleAudio = useCallback((bubbleId) => {
-    const bubble = bubblesRef.current.find((item) => item.id === bubbleId);
-    const element = bubble?.audio?.element;
-    if (!bubble || !element) {
-      return;
-    }
-
-    if (element.paused) {
-      element.play().then(() => {
-        setPlayingBubbleId(bubbleId);
-        setPlacedBubbleRevision((current) => current + 1);
-      }).catch(() => {
-        postToast(`Impossible de relancer ${bubble.label}.`, 'warning');
-      });
-      return;
-    }
-
-    element.pause();
-    setPlayingBubbleId('');
-    setPlacedBubbleRevision((current) => current + 1);
-  }, [postToast]);
-
-  const armPlacement = useCallback(() => {
     if (!isSessionActive) {
-      postToast('Le souffleur n’est disponible qu’en AR.', 'warning');
-      return;
-    }
-    if (interactionMode !== 'blower') {
-      postToast('Passez en mode souffleur pour créer une bulle.', 'warning');
-      return;
-    }
-    if (!selectedSetBubble?.assetId) {
-      postToast('Sélectionnez un pad complet avant de souffler.', 'warning');
+      postToast('Entrez en AR pour souffler la loop.', 'warning');
       return;
     }
 
-    setIsPlacementArmed(true);
-    postToast(`Souffleur prêt pour ${selectedSetBubble.label}. Touchez la scène pour créer la bulle.`, 'success');
-    pingHud();
-  }, [interactionMode, isSessionActive, pingHud, postToast, selectedSetBubble]);
-
-  const cancelPlacement = useCallback(() => {
-    setIsPlacementArmed(false);
-    postToast('Souffle annulé.', 'neutral');
-  }, [postToast]);
-
-  const onSelect = useCallback(async () => {
-    if (interactionMode !== 'blower') {
-      postToast('Le tap scène est réservé au mode souffleur.', 'neutral');
-      return;
-    }
-
-    if (!isPlacementArmed) {
-      postToast('Armez d’abord le souffleur depuis le panneau.', 'warning');
-      return;
-    }
-
-    if (!selectedSetBubble?.assetId) {
-      postToast('Le pad actif n’a pas de source audio.', 'warning');
-      setIsPlacementArmed(false);
-      return;
-    }
-
-    const asset = audioLibrary.find((item) => item.id === selectedSetBubble.assetId);
-    if (!asset) {
-      postToast('La source audio de ce pad est introuvable.', 'warning');
-      setIsPlacementArmed(false);
+    if (!scene || !camera) {
       return;
     }
 
     try {
       await ensureAudioContext();
-      stopPreview();
-      placeBubble(selectedSetBubble, asset);
+      const bubble = createBubble(pad);
+
+      camera.getWorldPosition(tempPosition);
+      camera.getWorldQuaternion(listenerQuaternion);
+      tempForward.copy(listenerForward).applyQuaternion(listenerQuaternion).normalize();
+
+      bubble.basePosition.copy(tempPosition).addScaledVector(tempForward, PLACE_DISTANCE);
+      bubble.root.position.copy(bubble.basePosition);
+      bubble.root.scale.setScalar(0.001);
+      bubble.shell.userData.bubbleId = bubble.id;
+      bubble.glow.userData.bubbleId = bubble.id;
+
+      scene.add(bubble.root);
+      bubblesRef.current.push(bubble);
+
+      if (bubblesRef.current.length > MAX_BUBBLES) {
+        const removed = bubblesRef.current.shift();
+        destroyBubble(removed, true);
+      }
+
+      setBubbleCount(bubblesRef.current.length);
+      setPlacedBubbleRevision((current) => current + 1);
+      setPendingPadId('');
       pingHud();
+      postToast(`Bulle ${pad.label} créée · départ quantifié au prochain temps.`, 'success');
     } catch (error) {
       postToast(error.message, 'warning');
     }
-  }, [audioLibrary, ensureAudioContext, interactionMode, isPlacementArmed, pingHud, placeBubble, postToast, selectedSetBubble, stopPreview]);
+  }, [beginPadImport, createBubble, destroyBubble, ensureAudioContext, isSessionActive, pads, pingHud, postToast]);
+
+  const toggleBubbleAttachment = useCallback((bubbleId) => {
+    const bubble = bubblesRef.current.find((item) => item.id === bubbleId);
+    if (!bubble) {
+      return;
+    }
+
+    bubble.attached = !bubble.attached;
+    setPlacedBubbleRevision((current) => current + 1);
+    postToast(bubble.attached ? 'Bulle collée à la caméra.' : 'Bulle décollée.', 'neutral');
+  }, [postToast]);
+
+  const popBubble = useCallback((bubbleId) => {
+    const index = bubblesRef.current.findIndex((item) => item.id === bubbleId);
+    if (index === -1) {
+      return;
+    }
+
+    const [bubble] = bubblesRef.current.splice(index, 1);
+    destroyBubble(bubble, true);
+    setBubbleCount(bubblesRef.current.length);
+    setPlacedBubbleRevision((current) => current + 1);
+    postToast('Bulle pop.', 'neutral');
+  }, [destroyBubble, postToast]);
+
+  const pickBubbleAtCameraCenter = useCallback(() => {
+    const camera = cameraRef.current;
+    if (!camera || !bubblesRef.current.length) {
+      return null;
+    }
+
+    camera.getWorldPosition(rayOrigin);
+    camera.getWorldQuaternion(listenerQuaternion);
+    rayDirection.copy(listenerForward).applyQuaternion(listenerQuaternion).normalize();
+    raycaster.set(rayOrigin, rayDirection);
+
+    const intersects = raycaster.intersectObjects(
+      bubblesRef.current.flatMap((bubble) => [bubble.shell, bubble.glow]),
+      false,
+    );
+
+    const bubbleId = intersects[0]?.object?.userData?.bubbleId;
+    return bubbleId ? bubblesRef.current.find((bubble) => bubble.id === bubbleId) ?? null : null;
+  }, []);
+
+  const handleSelectStart = useCallback(() => {
+    selectStartTimeRef.current = performance.now();
+  }, []);
+
+  const handleSelectEnd = useCallback(() => {
+    const pressedMs = performance.now() - selectStartTimeRef.current;
+    const hitBubble = pickBubbleAtCameraCenter();
+
+    if (!hitBubble) {
+      return;
+    }
+
+    if (pressedMs >= LONG_PRESS_MS) {
+      popBubble(hitBubble.id);
+      return;
+    }
+
+    toggleBubbleAttachment(hitBubble.id);
+  }, [pickBubbleAtCameraCenter, popBubble, toggleBubbleAttachment]);
 
   const onSessionEnd = useCallback(() => {
     xrSessionRef.current?.removeEventListener('end', onSessionEnd);
-    xrSessionRef.current?.removeEventListener('select', onSelect);
+    xrSessionRef.current?.removeEventListener('selectstart', handleSelectStart);
+    xrSessionRef.current?.removeEventListener('selectend', handleSelectEnd);
     xrSessionRef.current = null;
     setIsSessionActive(false);
-    setIsMenuOpen(false);
+    setMenuOpen(false);
     setIsHudVisible(true);
-    setIsPlacementArmed(false);
-    setInteractionModeState('blower');
     window.clearTimeout(hideHudTimerRef.current);
     postToast('Session AR terminée.', 'neutral');
-  }, [onSelect, postToast]);
+  }, [handleSelectEnd, handleSelectStart, postToast]);
 
   const enterAr = useCallback(async () => {
     if (!navigator.xr) {
-      postToast('WebXR is unavailable in this browser.', 'warning');
+      postToast('WebXR indisponible.', 'warning');
       return;
     }
 
     if (xrSessionRef.current) {
       await xrSessionRef.current.end();
-      return;
-    }
-
-    if (!readyPadCount) {
-      postToast('Préparez au moins un pad avant de passer en AR.', 'warning');
-      return;
-    }
-
-    if (!overlayRootRef.current || !rendererRef.current) {
-      postToast('AR overlay is not ready yet.', 'warning');
       return;
     }
 
@@ -596,151 +577,43 @@ export function useEchoBubbleLoop() {
 
       xrSessionRef.current = session;
       session.addEventListener('end', onSessionEnd);
-      session.addEventListener('select', onSelect);
+      session.addEventListener('selectstart', handleSelectStart);
+      session.addEventListener('selectend', handleSelectEnd);
 
       rendererRef.current.xr.setReferenceSpaceType('local');
       await rendererRef.current.xr.setSession(session);
 
       setIsSessionActive(true);
       setIsHudVisible(true);
-      setIsMenuOpen(false);
-      setInteractionModeState('blower');
+      setMenuOpen(false);
       pingHud();
-      postToast('AR prête. Sélectionnez un pad puis soufflez une loop dans l’espace.', 'success');
+      postToast('AR prête · tape une bulle pour coller, appui long pour pop.', 'success');
     } catch (error) {
-      postToast(`Failed to start AR: ${error.message}`, 'warning');
+      postToast(`AR impossible: ${error.message}`, 'warning');
     } finally {
       setIsBusy(false);
     }
-  }, [ensureAudioContext, onSelect, onSessionEnd, pingHud, postToast, readyPadCount]);
+  }, [ensureAudioContext, handleSelectEnd, handleSelectStart, onSessionEnd, pingHud, postToast]);
 
-  const importAudioFiles = useCallback(async (files) => {
-    if (!files.length) {
-      return;
+  const placedBubbles = useMemo(() => bubblesRef.current.map((bubble) => ({
+    id: bubble.id,
+    label: bubble.label,
+    attached: bubble.attached,
+  })), [bubbleCount, placedBubbleRevision]);
+
+  const readiness = useMemo(() => {
+    if (!isArSupported) {
+      return availabilityMessage;
     }
-
-    try {
-      await ensureAudioContext();
-    } catch (error) {
-      postToast(`Audio initialization failed: ${error.message}`, 'warning');
-      return;
+    if (!pads.some((pad) => pad.buffer)) {
+      return 'Ajoutez au moins un sample sur un pad.';
     }
-
-    const importedAssets = files.map((file) => ({
-      id: `asset-${++assetCounterRef.current}`,
-      name: file.name,
-      url: URL.createObjectURL(file),
-      sourceType: 'file',
-    }));
-
-    setAudioLibrary((current) => [...current, ...importedAssets]);
-    setSelectedAssetId((current) => current || importedAssets.at(0)?.id || '');
-
-    const latestAsset = importedAssets.at(-1);
-    if (latestAsset) {
-      playLibraryPreview(latestAsset);
-      postToast(`${importedAssets.length} son${importedAssets.length > 1 ? 's importés' : ' importé'}.`, 'success');
+    if (!isSessionActive) {
+      return 'Entrez en AR puis tapez un pad pour créer une bulle sur le tempo global.';
     }
-  }, [ensureAudioContext, playLibraryPreview, postToast]);
+    return 'Tapez un pad pour souffler une loop. Tapez une bulle pour la coller, appui long pour la pop.';
+  }, [availabilityMessage, isArSupported, isSessionActive, pads]);
 
-  const selectAsset = useCallback((assetId) => {
-    setSelectedAssetId(assetId);
-    const asset = audioLibrary.find((item) => item.id === assetId);
-    if (!asset) {
-      return;
-    }
-
-    playLibraryPreview(asset);
-    postToast(`Source active : ${asset.name}.`, 'neutral');
-    pingHud();
-  }, [audioLibrary, pingHud, playLibraryPreview, postToast]);
-
-  const toggleMicRecording = useCallback(async () => {
-    if (!isRecordingMic) {
-      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-        postToast('Enregistrement micro indisponible dans ce navigateur.', 'warning');
-        return;
-      }
-
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const recorder = new MediaRecorder(stream);
-        micStreamRef.current = stream;
-        mediaRecorderRef.current = recorder;
-        micChunksRef.current = [];
-
-        recorder.addEventListener('dataavailable', (event) => {
-          if (event.data?.size) {
-            micChunksRef.current.push(event.data);
-          }
-        });
-
-        recorder.addEventListener('stop', () => {
-          const chunks = micChunksRef.current;
-          micChunksRef.current = [];
-
-          if (!chunks.length) {
-            setIsRecordingMic(false);
-            return;
-          }
-
-          const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
-          const asset = {
-            id: `asset-${++assetCounterRef.current}`,
-            name: `Voix loop ${assetCounterRef.current}`,
-            url: URL.createObjectURL(blob),
-            sourceType: 'mic',
-          };
-
-          setAudioLibrary((current) => [...current, asset]);
-          setSelectedAssetId(asset.id);
-          playLibraryPreview(asset);
-          postToast('Prise voix ajoutée à la librairie.', 'success');
-
-          stream.getTracks().forEach((track) => track.stop());
-          micStreamRef.current = null;
-          mediaRecorderRef.current = null;
-          setIsRecordingMic(false);
-        });
-
-        recorder.start();
-        setIsRecordingMic(true);
-        postToast('Enregistrement micro lancé.', 'success');
-      } catch (error) {
-        postToast(`Impossible d’ouvrir le micro : ${error.message}`, 'warning');
-      }
-      return;
-    }
-
-    mediaRecorderRef.current?.stop();
-  }, [isRecordingMic, playLibraryPreview, postToast]);
-
-  const setInteractionMode = useCallback((mode) => {
-    setInteractionModeState(mode);
-    if (mode !== 'blower') {
-      setIsPlacementArmed(false);
-    }
-    postToast(mode === 'blower' ? 'Mode souffleur actif.' : 'Mode sticker actif.', 'neutral');
-    pingHud();
-  }, [pingHud, postToast]);
-
-  const toggleMenu = useCallback(() => {
-    setIsMenuOpen((current) => {
-      const next = !current;
-      setIsHudVisible(true);
-      if (!next) {
-        pingHud();
-      } else {
-        window.clearTimeout(hideHudTimerRef.current);
-      }
-      return next;
-    });
-  }, [pingHud]);
-
-  const dismissMenu = useCallback(() => {
-    setIsMenuOpen(false);
-    pingHud();
-  }, [pingHud]);
 
   useEffect(() => {
     const scene = new THREE.Scene();
@@ -752,9 +625,8 @@ export function useEchoBubbleLoop() {
     rendererRef.current = renderer;
 
     scene.add(camera);
-    scene.add(new THREE.HemisphereLight(0xc5ecff, 0x25344f, 1.45));
-
-    const keyLight = new THREE.DirectionalLight(0xffffff, 0.55);
+    scene.add(new THREE.HemisphereLight(0xc8edff, 0x26344c, 1.45));
+    const keyLight = new THREE.DirectionalLight(0xffffff, 0.48);
     keyLight.position.set(1, 2, 1);
     scene.add(keyLight);
 
@@ -769,12 +641,13 @@ export function useEchoBubbleLoop() {
 
     const renderLoop = (timestamp) => {
       const delta = frameClockRef.current.getDelta();
-      const elapsedTime = timestamp ? timestamp * 0.001 : frameClockRef.current.elapsedTime;
+      const elapsed = timestamp ? timestamp * 0.001 : frameClockRef.current.elapsedTime;
       const context = audioContextRef.current;
+      const cameraInstance = cameraRef.current;
 
-      if (context && cameraRef.current) {
-        cameraRef.current.getWorldPosition(listenerPosition);
-        cameraRef.current.getWorldQuaternion(listenerQuaternion);
+      if (context && cameraInstance) {
+        cameraInstance.getWorldPosition(listenerPosition);
+        cameraInstance.getWorldQuaternion(listenerQuaternion);
         tempForward.copy(listenerForward).applyQuaternion(listenerQuaternion).normalize();
         tempUp.copy(listenerUp).applyQuaternion(listenerQuaternion).normalize();
 
@@ -798,45 +671,49 @@ export function useEchoBubbleLoop() {
       }
 
       for (const bubble of bubblesRef.current) {
-        const age = elapsedTime - bubble.createdAt;
-        const entryProgress = THREE.MathUtils.clamp(age / ENTRY_DURATION, 0, 1);
-        const easedScale = easeOutBack(entryProgress);
-
-        const bob = Math.sin(elapsedTime * FLOAT_SPEED + bubble.seed) * FLOAT_HEIGHT;
-        const driftX = Math.sin(elapsedTime * 0.31 + bubble.seed * 1.6) * DRIFT_AMOUNT;
-        const driftZ = Math.cos(elapsedTime * 0.26 + bubble.seed * 1.35) * DRIFT_AMOUNT;
-
-        bubbleOffset.set(driftX, bob, driftZ);
-        bubble.root.scale.setScalar(Math.max(0.001, easedScale));
-        bubble.root.rotation.y += delta * 0.18;
-
-        bubble.sphere.position.copy(bubbleOffset);
-        bubble.glow.position.copy(bubbleOffset);
-        bubble.sphere.scale.setScalar(1 + Math.sin(elapsedTime * 1.05 + bubble.seed) * 0.02);
-        bubble.glow.scale.setScalar(1 + Math.sin(elapsedTime * 0.72 + bubble.seed) * 0.08);
-        bubble.sphere.material.emissiveIntensity = 0.52 + Math.sin(elapsedTime * 0.9 + bubble.seed) * 0.08;
-        bubble.glow.material.opacity = 0.08 + Math.sin(elapsedTime * 0.88 + bubble.seed) * 0.02;
-
-        bubble.root.getWorldPosition(bubblePosition);
-        bubblePosition.add(bubbleOffset);
-
-        if (context && bubble.audio?.gain) {
-          const distance = bubblePosition.distanceTo(listenerPosition);
-          const targetGain = THREE.MathUtils.clamp(1 - distance / bubble.range, 0.02, 1) * (bubble.volume / 100);
-          bubble.audio.gain.gain.setTargetAtTime(targetGain, context.currentTime, age < 0.8 ? 0.18 : 0.12);
-        }
-
-        const panner = bubble.audio?.panner;
-        if (!panner || !context) {
-          continue;
-        }
-
-        if (panner.positionX) {
-          panner.positionX.setValueAtTime(bubblePosition.x, context.currentTime);
-          panner.positionY.setValueAtTime(bubblePosition.y, context.currentTime);
-          panner.positionZ.setValueAtTime(bubblePosition.z, context.currentTime);
+        if (bubble.attached && cameraInstance) {
+          cameraInstance.getWorldPosition(tempTarget);
+          cameraInstance.getWorldQuaternion(listenerQuaternion);
+          tempForward.copy(listenerForward).applyQuaternion(listenerQuaternion).normalize();
+          bubble.basePosition.copy(tempTarget).addScaledVector(tempForward, PLACE_DISTANCE);
         } else {
-          panner.setPosition(bubblePosition.x, bubblePosition.y, bubblePosition.z);
+          bubble.basePosition.addScaledVector(bubble.velocity, delta);
+          bubble.basePosition.x += Math.sin(elapsed * 0.7 + bubble.seed) * FLOAT_SWAY * delta;
+          bubble.basePosition.z += Math.cos(elapsed * 0.62 + bubble.seed * 1.7) * FLOAT_SWAY * delta;
+        }
+
+        bubbleVisualOffset.set(
+          Math.sin(elapsed * 0.9 + bubble.seed) * 0.015,
+          Math.sin(elapsed * 1.2 + bubble.seed * 1.4) * 0.022,
+          Math.cos(elapsed * 0.8 + bubble.seed) * 0.015,
+        );
+
+        bubble.visualPosition.copy(bubble.basePosition).add(bubbleVisualOffset);
+        bubble.root.position.lerp(bubble.visualPosition, bubble.attached ? 0.22 : 0.08);
+        const scale = bubble.root.scale.x + (1 - bubble.root.scale.x) * 0.12;
+        bubble.root.scale.setScalar(scale);
+        bubble.root.rotation.y += delta * 0.16;
+        bubble.glow.scale.setScalar(1 + Math.sin(elapsed * 0.7 + bubble.seed) * 0.06);
+        bubble.shell.scale.setScalar(1 + Math.sin(elapsed * 1.1 + bubble.seed) * 0.02);
+        bubble.shell.material.emissiveIntensity = 0.5 + Math.sin(elapsed * 0.9 + bubble.seed) * 0.07;
+        bubble.glow.material.opacity = 0.08 + Math.sin(elapsed * 0.65 + bubble.seed) * 0.02;
+
+        bubble.root.getWorldPosition(bubbleWorldPosition);
+
+        if (context && bubble.audio?.panner) {
+          const distance = bubbleWorldPosition.distanceTo(listenerPosition);
+          const targetGain = distance < bubble.range
+            ? ((1 - distance / bubble.range) ** 2) * bubble.gainMax
+            : 0;
+          bubble.audio.gain.gain.setTargetAtTime(Math.max(targetGain, 0.0001), context.currentTime, 0.12);
+
+          if (bubble.audio.panner.positionX) {
+            bubble.audio.panner.positionX.setValueAtTime(bubbleWorldPosition.x, context.currentTime);
+            bubble.audio.panner.positionY.setValueAtTime(bubbleWorldPosition.y, context.currentTime);
+            bubble.audio.panner.positionZ.setValueAtTime(bubbleWorldPosition.z, context.currentTime);
+          } else {
+            bubble.audio.panner.setPosition(bubbleWorldPosition.x, bubbleWorldPosition.y, bubbleWorldPosition.z);
+          }
         }
       }
 
@@ -858,7 +735,7 @@ export function useEchoBubbleLoop() {
     const checkArAvailability = async () => {
       if (!navigator.xr) {
         setIsArSupported(false);
-        setAvailabilityMessage('WebXR est indisponible ici. Utilisez Chrome Android avec ARCore en HTTPS.');
+        setAvailabilityMessage('WebXR immersive-ar indisponible sur cet appareil.');
         return;
       }
 
@@ -866,11 +743,11 @@ export function useEchoBubbleLoop() {
         const supported = await navigator.xr.isSessionSupported('immersive-ar');
         setIsArSupported(supported);
         if (!supported) {
-          setAvailabilityMessage('L’AR immersive n’est pas disponible sur cet appareil.');
+          setAvailabilityMessage('L’AR immersive n’est pas disponible ici.');
         }
       } catch (error) {
         setIsArSupported(false);
-        setAvailabilityMessage(`Impossible de vérifier l’AR : ${error.message}`);
+        setAvailabilityMessage(`Vérification AR impossible: ${error.message}`);
       }
     };
 
@@ -880,7 +757,6 @@ export function useEchoBubbleLoop() {
     return () => {
       window.removeEventListener('resize', onResize);
       renderer.setAnimationLoop(null);
-      stopPreview();
       window.clearTimeout(dismissTimerRef.current);
       window.clearTimeout(hideHudTimerRef.current);
 
@@ -894,7 +770,11 @@ export function useEchoBubbleLoop() {
       }
 
       clearAllBubbles(false);
-      audioLibraryRef.current.forEach((asset) => URL.revokeObjectURL(asset.url));
+      pads.forEach((pad) => {
+        if (pad.url) {
+          URL.revokeObjectURL(pad.url);
+        }
+      });
       masterGainRef.current?.disconnect();
       audioContextRef.current?.close().catch(() => {});
       renderer.dispose();
@@ -903,22 +783,7 @@ export function useEchoBubbleLoop() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    audioLibraryRef.current = audioLibrary;
-  }, [audioLibrary]);
-
-  useEffect(() => {
-    if (!setBubbles.length) {
-      setActiveSetBubbleId('');
-      return;
-    }
-
-    if (!setBubbles.some((bubble) => bubble.id === activeSetBubbleId)) {
-      setActiveSetBubbleId(setBubbles[0].id);
-    }
-  }, [activeSetBubbleId, setBubbles]);
-
-  useEffect(() => {
-    if (!isSessionActive || isMenuOpen) {
+    if (!isSessionActive || menuOpen) {
       return undefined;
     }
 
@@ -926,86 +791,38 @@ export function useEchoBubbleLoop() {
     return () => {
       window.clearTimeout(hideHudTimerRef.current);
     };
-  }, [isSessionActive, isMenuOpen, pingHud]);
+  }, [isSessionActive, menuOpen, pingHud]);
 
-  useEffect(() => {
-    if (!placedBubbles.length) {
-      setSelectedPlacedBubbleId('');
-      return;
-    }
-
-    if (!placedBubbles.some((bubble) => bubble.id === selectedPlacedBubbleId)) {
-      setSelectedPlacedBubbleId(placedBubbles[0].id);
-    }
-  }, [placedBubbles, selectedPlacedBubbleId]);
-
-  const readiness = useMemo(() => {
-    if (!isArSupported) {
-      return availabilityMessage;
-    }
-    if (!audioLibrary.length) {
-      return 'Capturez ou importez un premier son pour alimenter le sampler.';
-    }
-    if (!readyPadCount) {
-      return 'Affectez une source à au moins un pad pour rendre le souffleur opérationnel.';
-    }
-    if (!isSessionActive) {
-      return 'Pads prêts : entrez en AR pour souffler vos loops dans l’espace.';
-    }
-    if (interactionMode === 'sticker') {
-      return 'Mode sticker : ajustez volume et portée des bulles déjà placées.';
-    }
-    if (isPlacementArmed) {
-      return 'Souffleur armé : touchez la scène pour déposer la prochaine bulle.';
-    }
-    return 'Mode souffleur : sélectionnez un pad puis armez la création de bulle.';
-  }, [audioLibrary.length, availabilityMessage, interactionMode, isArSupported, isPlacementArmed, isSessionActive, readyPadCount]);
+  const activePadCount = useMemo(() => pads.filter((pad) => pad.buffer).length, [pads]);
 
   return {
     sceneHostRef,
     overlayRootRef,
-    audioLibrary,
-    selectedAsset,
-    selectedAssetId,
-    setBubbles,
-    selectedSetBubble,
-    activeSetBubbleId,
-    readyPadCount,
-    interactionMode,
+    pads,
+    bpm,
+    beatDuration,
+    bubbleCount,
+    placedBubbles,
     isArSupported,
     availabilityMessage,
     isSessionActive,
-    bubbleCount,
-    placedBubbles,
-    selectedPlacedBubble,
-    selectedPlacedBubbleId,
-    toasts,
-    isHudVisible,
-    isMenuOpen,
     isBusy,
-    isPlacementArmed,
-    previewingId,
-    readiness,
+    isHudVisible,
+    pendingPadId,
     isRecordingMic,
+    menuOpen,
+    activePadCount,
+    readiness,
+    toasts,
     enterAr,
-    importAudioFiles,
-    selectAsset,
-    addSetBubble,
-    updateSetBubble,
-    updatePlacedBubble,
-    removeSetBubble,
-    setActiveSetBubbleId,
-    playSetBubblePreview,
-    stopPreview,
-    togglePlacedBubbleAudio,
-    armPlacement,
-    cancelPlacement,
-    setInteractionMode,
-    setSelectedPlacedBubbleId,
-    toggleMenu,
-    dismissMenu,
-    clearAllBubbles,
     pingHud,
+    beginPadImport,
+    openFilePickerForPad,
+    handleImportedFiles,
     toggleMicRecording,
+    placeBubbleFromPad,
+    clearAllBubbles,
+    setPendingPadId,
+    setMenuOpen,
   };
 }
