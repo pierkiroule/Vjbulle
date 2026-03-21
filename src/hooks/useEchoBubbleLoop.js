@@ -2,10 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 
 const MAX_BUBBLES = 8;
+const MAX_SET_BUBBLES = 8;
 const FLOAT_SPEED = 0.68;
 const FLOAT_HEIGHT = 0.028;
 const DRIFT_AMOUNT = 0.013;
-const MAX_AUDIBLE_DISTANCE = 9;
+const DEFAULT_RANGE = 6;
+const MIN_RANGE = 2;
+const MAX_RANGE = 18;
+const DEFAULT_VOLUME = 70;
 const PLACE_DISTANCE = 0.4;
 const FADE_TIME = 0.12;
 const ENTRY_DURATION = 0.72;
@@ -31,6 +35,24 @@ function createToast(id, tone, message) {
   return { id, tone, message };
 }
 
+function clampRange(value) {
+  return THREE.MathUtils.clamp(Number(value) || DEFAULT_RANGE, MIN_RANGE, MAX_RANGE);
+}
+
+function clampVolume(value) {
+  return THREE.MathUtils.clamp(Number(value) || DEFAULT_VOLUME, 0, 100);
+}
+
+function createSetBubbleDefinition(id, assetId = '') {
+  return {
+    id,
+    label: `Bulle ${id.split('-').at(-1)}`,
+    assetId,
+    range: DEFAULT_RANGE,
+    volume: DEFAULT_VOLUME,
+  };
+}
+
 export function useEchoBubbleLoop() {
   const sceneHostRef = useRef(null);
   const overlayRootRef = useRef(null);
@@ -46,6 +68,7 @@ export function useEchoBubbleLoop() {
   const previewStopTimerRef = useRef(0);
   const assetCounterRef = useRef(0);
   const bubbleCounterRef = useRef(0);
+  const setBubbleCounterRef = useRef(0);
   const toastCounterRef = useRef(0);
   const dismissTimerRef = useRef(0);
   const hideHudTimerRef = useRef(0);
@@ -53,6 +76,9 @@ export function useEchoBubbleLoop() {
 
   const [audioLibrary, setAudioLibrary] = useState([]);
   const [selectedAssetId, setSelectedAssetId] = useState('');
+  const [setBubbles, setSetBubbles] = useState([]);
+  const [activeSetBubbleId, setActiveSetBubbleId] = useState('');
+  const [isSetValidated, setIsSetValidated] = useState(false);
   const [isListeningMode, setIsListeningMode] = useState(false);
   const [isArSupported, setIsArSupported] = useState(true);
   const [availabilityMessage, setAvailabilityMessage] = useState('');
@@ -62,10 +88,30 @@ export function useEchoBubbleLoop() {
   const [isHudVisible, setIsHudVisible] = useState(true);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isBusy, setIsBusy] = useState(false);
+  const [isPlacementArmed, setIsPlacementArmed] = useState(false);
+  const [previewingId, setPreviewingId] = useState('');
+  const [playingBubbleId, setPlayingBubbleId] = useState('');
 
   const selectedAsset = useMemo(
     () => audioLibrary.find((asset) => asset.id === selectedAssetId) ?? null,
     [audioLibrary, selectedAssetId],
+  );
+
+  const selectedSetBubble = useMemo(
+    () => setBubbles.find((bubble) => bubble.id === activeSetBubbleId) ?? null,
+    [activeSetBubbleId, setBubbles],
+  );
+
+  const placedBubbles = useMemo(
+    () => bubblesRef.current.map((bubble) => ({
+      id: bubble.id,
+      label: bubble.label,
+      assetName: bubble.assetName,
+      range: bubble.range,
+      volume: bubble.volume,
+      isPlaying: !bubble.audio?.element?.paused,
+    })),
+    [bubbleCount, playingBubbleId],
   );
 
   const postToast = useCallback((message, tone = 'neutral') => {
@@ -111,6 +157,53 @@ export function useEchoBubbleLoop() {
 
     return audioContextRef.current;
   }, []);
+
+  const stopPreview = useCallback(() => {
+    window.clearTimeout(previewStopTimerRef.current);
+    previewStopTimerRef.current = 0;
+
+    const previewAudio = previewAudioRef.current;
+    if (!previewAudio) {
+      return;
+    }
+
+    try {
+      previewAudio.pause();
+      previewAudio.currentTime = 0;
+      previewAudio.src = '';
+    } catch {
+      // Ignore preview cleanup errors.
+    }
+
+    previewAudioRef.current = null;
+    setPreviewingId('');
+  }, []);
+
+  const playLibraryPreview = useCallback((asset, previewId = asset?.id ?? '') => {
+    stopPreview();
+
+    if (!asset) {
+      return false;
+    }
+
+    const preview = new Audio(asset.url);
+    preview.preload = 'auto';
+    preview.playsInline = true;
+    preview.volume = 0.8;
+
+    previewAudioRef.current = preview;
+    setPreviewingId(previewId);
+    previewStopTimerRef.current = window.setTimeout(() => {
+      stopPreview();
+    }, 1600);
+
+    preview.play().catch(() => {
+      stopPreview();
+      postToast(`Preview unavailable for ${asset.name}.`, 'warning');
+    });
+
+    return true;
+  }, [postToast, stopPreview]);
 
   const disposeBubbleAudio = useCallback((audio) => {
     if (!audio) {
@@ -159,65 +252,26 @@ export function useEchoBubbleLoop() {
       }
     });
 
+    if (playingBubbleId === bubble.id) {
+      setPlayingBubbleId('');
+    }
+
     window.setTimeout(() => disposeBubbleAudio(bubble.audio), fadeOut ? 180 : 0);
-  }, [disposeBubbleAudio]);
+  }, [disposeBubbleAudio, playingBubbleId]);
 
   const clearAllBubbles = useCallback((notify = true) => {
     const existing = bubblesRef.current.splice(0, bubblesRef.current.length);
     existing.forEach((bubble) => destroyBubble(bubble, true));
     setBubbleCount(0);
+    setPlayingBubbleId('');
+    setIsPlacementArmed(false);
 
     if (notify) {
-      postToast('All bubbles cleared.', 'neutral');
+      postToast('Toutes les bulles de la composition ont été supprimées.', 'neutral');
     }
   }, [destroyBubble, postToast]);
 
-  const stopPreview = useCallback(() => {
-    window.clearTimeout(previewStopTimerRef.current);
-    previewStopTimerRef.current = 0;
-
-    const previewAudio = previewAudioRef.current;
-    if (!previewAudio) {
-      return;
-    }
-
-    try {
-      previewAudio.pause();
-      previewAudio.currentTime = 0;
-      previewAudio.src = '';
-    } catch {
-      // Ignore preview cleanup errors.
-    }
-
-    previewAudioRef.current = null;
-  }, []);
-
-  const playPreview = useCallback((asset) => {
-    stopPreview();
-
-    if (!asset || bubblesRef.current.length > 0) {
-      return false;
-    }
-
-    const preview = new Audio(asset.url);
-    preview.preload = 'auto';
-    preview.playsInline = true;
-    preview.volume = 0.8;
-
-    previewAudioRef.current = preview;
-    previewStopTimerRef.current = window.setTimeout(() => {
-      stopPreview();
-    }, 1000);
-
-    preview.play().catch(() => {
-      stopPreview();
-      postToast(`Preview unavailable for ${asset.name}.`, 'warning');
-    });
-
-    return true;
-  }, [postToast, stopPreview]);
-
-  const createBubbleAudio = useCallback((asset) => {
+  const createBubbleAudio = useCallback((asset, volume, range) => {
     const context = audioContextRef.current;
     if (!context || !masterGainRef.current) {
       throw new Error('Audio context is not ready.');
@@ -235,9 +289,9 @@ export function useEchoBubbleLoop() {
 
     panner.panningModel = 'HRTF';
     panner.distanceModel = 'inverse';
-    panner.refDistance = 0.42;
-    panner.maxDistance = MAX_AUDIBLE_DISTANCE;
-    panner.rolloffFactor = 1.4;
+    panner.refDistance = Math.max(0.35, range * 0.08);
+    panner.maxDistance = range;
+    panner.rolloffFactor = 1.25;
     panner.coneInnerAngle = 360;
     panner.coneOuterAngle = 0;
 
@@ -247,6 +301,7 @@ export function useEchoBubbleLoop() {
     gain.connect(panner);
     panner.connect(masterGainRef.current);
 
+    element.volume = clampVolume(volume) / 100;
     element.play().catch(() => {
       postToast(`Playback blocked for ${asset.name}. Tap again to resume.`, 'warning');
     });
@@ -254,7 +309,7 @@ export function useEchoBubbleLoop() {
     return { element, source, gain, panner };
   }, [postToast]);
 
-  const createBubble = useCallback((asset) => {
+  const createBubble = useCallback((setBubble, asset) => {
     const root = new THREE.Group();
     const sphere = new THREE.Mesh(
       new THREE.SphereGeometry(0.088, 24, 24),
@@ -284,25 +339,29 @@ export function useEchoBubbleLoop() {
 
     return {
       id: `bubble-${++bubbleCounterRef.current}`,
+      setBubbleId: setBubble.id,
+      label: setBubble.label,
       assetId: asset.id,
       assetName: asset.name,
+      range: clampRange(setBubble.range),
+      volume: clampVolume(setBubble.volume),
       createdAt: performance.now() * 0.001,
       seed: Math.random() * Math.PI * 2,
       root,
       sphere,
       glow,
-      audio: createBubbleAudio(asset),
+      audio: createBubbleAudio(asset, setBubble.volume, setBubble.range),
     };
   }, [createBubbleAudio]);
 
-  const placeBubble = useCallback((asset) => {
+  const placeBubble = useCallback((setBubble, asset) => {
     const scene = sceneRef.current;
     const camera = cameraRef.current;
     if (!scene || !camera) {
       return;
     }
 
-    const bubble = createBubble(asset);
+    const bubble = createBubble(setBubble, asset);
 
     camera.getWorldPosition(placementOrigin);
     camera.getWorldQuaternion(listenerQuaternion);
@@ -320,8 +379,127 @@ export function useEchoBubbleLoop() {
     }
 
     setBubbleCount(bubblesRef.current.length);
-    postToast(`Placed ${asset.name}. ${bubblesRef.current.length}/${MAX_BUBBLES} active.`, 'success');
+    setIsPlacementArmed(false);
+    postToast(`${setBubble.label} placée. ${bubblesRef.current.length}/${MAX_BUBBLES} actives.`, 'success');
   }, [createBubble, destroyBubble, postToast]);
+
+  const validateSet = useCallback(() => {
+    if (!setBubbles.length) {
+      postToast('Ajoutez au moins une bulle au set avant validation.', 'warning');
+      return false;
+    }
+
+    const hasMissingSource = setBubbles.some((bubble) => !bubble.assetId);
+    if (hasMissingSource) {
+      postToast('Chaque bulle du set doit avoir une source audio.', 'warning');
+      return false;
+    }
+
+    setIsSetValidated(true);
+    postToast('Set validé et sauvegardé. Vous pouvez passer à la composition.', 'success');
+    return true;
+  }, [postToast, setBubbles]);
+
+  const addSetBubble = useCallback(() => {
+    if (setBubbles.length >= MAX_SET_BUBBLES) {
+      postToast(`Le set est limité à ${MAX_SET_BUBBLES} bulles.`, 'warning');
+      return;
+    }
+
+    const nextId = `set-bubble-${++setBubbleCounterRef.current}`;
+    const bubble = createSetBubbleDefinition(nextId, selectedAssetId);
+    setSetBubbles((current) => [...current, bubble]);
+    setActiveSetBubbleId(nextId);
+    setIsSetValidated(false);
+    postToast('Nouvelle bulle ajoutée au set. Réglez sa source, sa portée et son volume.', 'neutral');
+  }, [postToast, selectedAssetId, setBubbles.length]);
+
+  const updateSetBubble = useCallback((bubbleId, patch) => {
+    setSetBubbles((current) => current.map((bubble) => {
+      if (bubble.id !== bubbleId) {
+        return bubble;
+      }
+
+      return {
+        ...bubble,
+        ...patch,
+        range: patch.range !== undefined ? clampRange(patch.range) : bubble.range,
+        volume: patch.volume !== undefined ? clampVolume(patch.volume) : bubble.volume,
+      };
+    }));
+    setIsSetValidated(false);
+  }, []);
+
+  const removeSetBubble = useCallback((bubbleId) => {
+    setSetBubbles((current) => current.filter((bubble) => bubble.id !== bubbleId));
+    setIsSetValidated(false);
+    setActiveSetBubbleId((current) => (current === bubbleId ? '' : current));
+    postToast('Bulle retirée du set.', 'neutral');
+  }, [postToast]);
+
+  const playSetBubblePreview = useCallback((bubbleId) => {
+    const setBubble = setBubbles.find((bubble) => bubble.id === bubbleId);
+    if (!setBubble?.assetId) {
+      postToast('Choisissez une source audio avant lecture.', 'warning');
+      return;
+    }
+
+    const asset = audioLibrary.find((item) => item.id === setBubble.assetId);
+    if (!asset) {
+      postToast('Source audio introuvable.', 'warning');
+      return;
+    }
+
+    playLibraryPreview(asset, bubbleId);
+  }, [audioLibrary, playLibraryPreview, postToast, setBubbles]);
+
+  const togglePlacedBubbleAudio = useCallback((bubbleId) => {
+    const bubble = bubblesRef.current.find((item) => item.id === bubbleId);
+    const element = bubble?.audio?.element;
+    if (!bubble || !element) {
+      return;
+    }
+
+    if (element.paused) {
+      element.play().then(() => {
+        setPlayingBubbleId(bubbleId);
+      }).catch(() => {
+        postToast(`Impossible de relancer ${bubble.label}.`, 'warning');
+      });
+      return;
+    }
+
+    element.pause();
+    setPlayingBubbleId('');
+  }, [postToast]);
+
+  const armPlacement = useCallback(() => {
+    if (!isSessionActive) {
+      postToast('La composition est disponible uniquement en AR.', 'warning');
+      return;
+    }
+    if (isListeningMode) {
+      postToast('Repassez en mode création pour préparer une pose.', 'warning');
+      return;
+    }
+    if (!isSetValidated) {
+      postToast('Validez et sauvegardez votre set avant de composer.', 'warning');
+      return;
+    }
+    if (!selectedSetBubble) {
+      postToast('Sélectionnez une bulle du set.', 'warning');
+      return;
+    }
+
+    setIsPlacementArmed(true);
+    postToast(`Pose prête pour ${selectedSetBubble.label}. Touchez la scène pour confirmer.`, 'success');
+    pingHud();
+  }, [isListeningMode, isSessionActive, isSetValidated, pingHud, postToast, selectedSetBubble]);
+
+  const cancelPlacement = useCallback(() => {
+    setIsPlacementArmed(false);
+    postToast('Pose annulée.', 'neutral');
+  }, [postToast]);
 
   const onSelect = useCallback(async () => {
     if (isListeningMode) {
@@ -329,20 +507,39 @@ export function useEchoBubbleLoop() {
       return;
     }
 
-    if (!selectedAsset) {
-      postToast('Choose a sound before placing a bubble.', 'warning');
+    if (!isPlacementArmed) {
+      postToast('Préparez la pose depuis le menu avant de toucher la scène.', 'warning');
+      return;
+    }
+
+    if (!isSetValidated) {
+      postToast('Validez votre set avant de poser une bulle.', 'warning');
+      setIsPlacementArmed(false);
+      return;
+    }
+
+    if (!selectedSetBubble) {
+      postToast('Sélectionnez une bulle du set avant la pose.', 'warning');
+      setIsPlacementArmed(false);
+      return;
+    }
+
+    const asset = audioLibrary.find((item) => item.id === selectedSetBubble.assetId);
+    if (!asset) {
+      postToast('La source audio de cette bulle est introuvable.', 'warning');
+      setIsPlacementArmed(false);
       return;
     }
 
     try {
       await ensureAudioContext();
       stopPreview();
-      placeBubble(selectedAsset);
+      placeBubble(selectedSetBubble, asset);
       pingHud();
     } catch (error) {
       postToast(error.message, 'warning');
     }
-  }, [ensureAudioContext, isListeningMode, pingHud, placeBubble, postToast, selectedAsset, stopPreview]);
+  }, [audioLibrary, ensureAudioContext, isListeningMode, isPlacementArmed, isSetValidated, pingHud, placeBubble, postToast, selectedSetBubble, stopPreview]);
 
   const onSessionEnd = useCallback(() => {
     xrSessionRef.current?.removeEventListener('end', onSessionEnd);
@@ -351,6 +548,7 @@ export function useEchoBubbleLoop() {
     setIsSessionActive(false);
     setIsMenuOpen(false);
     setIsHudVisible(true);
+    setIsPlacementArmed(false);
     window.clearTimeout(hideHudTimerRef.current);
     postToast('AR session ended.', 'neutral');
   }, [onSelect, postToast]);
@@ -363,6 +561,11 @@ export function useEchoBubbleLoop() {
 
     if (xrSessionRef.current) {
       await xrSessionRef.current.end();
+      return;
+    }
+
+    if (!isSetValidated) {
+      postToast('Définissez, validez et sauvegardez votre set avant de passer en AR.', 'warning');
       return;
     }
 
@@ -390,13 +593,13 @@ export function useEchoBubbleLoop() {
       setIsHudVisible(true);
       setIsMenuOpen(false);
       pingHud();
-      postToast(selectedAsset ? 'AR ready. Tap anywhere to place.' : 'AR ready. Import a sound to place bubbles.', 'success');
+      postToast('AR ready. Préparez une pose depuis le menu puis touchez la scène.', 'success');
     } catch (error) {
       postToast(`Failed to start AR: ${error.message}`, 'warning');
     } finally {
       setIsBusy(false);
     }
-  }, [ensureAudioContext, onSelect, onSessionEnd, pingHud, postToast, selectedAsset]);
+  }, [ensureAudioContext, isSetValidated, onSelect, onSessionEnd, pingHud, postToast]);
 
   const importAudioFiles = useCallback(async (files) => {
     if (!files.length) {
@@ -416,23 +619,15 @@ export function useEchoBubbleLoop() {
       url: URL.createObjectURL(file),
     }));
 
-    setAudioLibrary((current) => {
-      const next = [...current, ...importedAssets];
-      return next;
-    });
-    setSelectedAssetId(importedAssets.at(-1)?.id ?? '');
+    setAudioLibrary((current) => [...current, ...importedAssets]);
+    setSelectedAssetId((current) => current || importedAssets.at(0)?.id || '');
 
     const latestAsset = importedAssets.at(-1);
     if (latestAsset) {
-      const previewStarted = playPreview(latestAsset);
-      postToast(
-        previewStarted
-          ? `${importedAssets.length} sound${importedAssets.length > 1 ? 's' : ''} imported. Previewing ${latestAsset.name}.`
-          : `${importedAssets.length} sound${importedAssets.length > 1 ? 's' : ''} imported.`,
-        'success',
-      );
+      playLibraryPreview(latestAsset);
+      postToast(`${importedAssets.length} son${importedAssets.length > 1 ? 's importés' : ' importé'}.`, 'success');
     }
-  }, [ensureAudioContext, playPreview, postToast]);
+  }, [ensureAudioContext, playLibraryPreview, postToast]);
 
   const selectAsset = useCallback((assetId) => {
     setSelectedAssetId(assetId);
@@ -441,17 +636,17 @@ export function useEchoBubbleLoop() {
       return;
     }
 
-    const previewStarted = playPreview(asset);
-    postToast(
-      previewStarted ? `Current source: ${asset.name}.` : `Current source updated to ${asset.name}.`,
-      'neutral',
-    );
+    playLibraryPreview(asset);
+    postToast(`Source active : ${asset.name}.`, 'neutral');
     pingHud();
-  }, [audioLibrary, pingHud, playPreview, postToast]);
+  }, [audioLibrary, pingHud, playLibraryPreview, postToast]);
 
   const toggleMode = useCallback(() => {
     setIsListeningMode((current) => {
       const next = !current;
+      if (next) {
+        setIsPlacementArmed(false);
+      }
       postToast(next ? 'Listening mode active.' : 'Creation mode active.', 'neutral');
       return next;
     });
@@ -556,7 +751,7 @@ export function useEchoBubbleLoop() {
 
         if (context && bubble.audio?.gain) {
           const distance = bubblePosition.distanceTo(listenerPosition);
-          const targetGain = THREE.MathUtils.clamp(1 - distance / MAX_AUDIBLE_DISTANCE, 0.02, 1);
+          const targetGain = THREE.MathUtils.clamp(1 - distance / bubble.range, 0.02, 1) * (bubble.volume / 100);
           bubble.audio.gain.gain.setTargetAtTime(targetGain, context.currentTime, age < 0.8 ? 0.18 : 0.12);
         }
 
@@ -636,6 +831,17 @@ export function useEchoBubbleLoop() {
   }, [audioLibrary]);
 
   useEffect(() => {
+    if (!setBubbles.length) {
+      setActiveSetBubbleId('');
+      return;
+    }
+
+    if (!setBubbles.some((bubble) => bubble.id === activeSetBubbleId)) {
+      setActiveSetBubbleId(setBubbles[0].id);
+    }
+  }, [activeSetBubbleId, setBubbles]);
+
+  useEffect(() => {
     if (!isSessionActive || isMenuOpen) {
       return undefined;
     }
@@ -650,13 +856,23 @@ export function useEchoBubbleLoop() {
     if (!isArSupported) {
       return availabilityMessage;
     }
-    if (!selectedAsset) {
-      return 'Import a sound and choose a source before placing bubbles.';
+    if (!setBubbles.length) {
+      return 'Préparez votre set : ajoutez des bulles et affectez une source audio à chacune.';
     }
-    return isListeningMode
-      ? 'Listening mode active. Walk the space and explore your layers.'
-      : 'Tap in AR to place a bubble exactly where you look.';
-  }, [availabilityMessage, isArSupported, isListeningMode, selectedAsset]);
+    if (!isSetValidated) {
+      return 'Le set a changé : validez-le et sauvegardez-le avant la composition.';
+    }
+    if (!isSessionActive) {
+      return 'Set prêt. Vous pouvez entrer en AR ou continuer à l’éditer.';
+    }
+    if (isListeningMode) {
+      return 'Mode écoute actif. Déplacez-vous dans le paysage pour explorer les couches.';
+    }
+    if (isPlacementArmed) {
+      return 'Pose préparée. Touchez la scène pour confirmer le placement.';
+    }
+    return 'Choisissez une bulle du set puis préparez la pose avant de toucher la scène.';
+  }, [availabilityMessage, isArSupported, isListeningMode, isPlacementArmed, isSessionActive, isSetValidated, setBubbles.length]);
 
   return {
     sceneHostRef,
@@ -664,19 +880,36 @@ export function useEchoBubbleLoop() {
     audioLibrary,
     selectedAsset,
     selectedAssetId,
+    setBubbles,
+    selectedSetBubble,
+    activeSetBubbleId,
+    isSetValidated,
     isListeningMode,
     isArSupported,
     availabilityMessage,
     isSessionActive,
     bubbleCount,
+    placedBubbles,
     toasts,
     isHudVisible,
     isMenuOpen,
     isBusy,
+    isPlacementArmed,
+    previewingId,
     readiness,
     enterAr,
     importAudioFiles,
     selectAsset,
+    addSetBubble,
+    updateSetBubble,
+    removeSetBubble,
+    validateSet,
+    setActiveSetBubbleId,
+    playSetBubblePreview,
+    stopPreview,
+    togglePlacedBubbleAudio,
+    armPlacement,
+    cancelPlacement,
     toggleMode,
     toggleMenu,
     dismissMenu,

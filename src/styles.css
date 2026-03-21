@@ -17,6 +17,7 @@
   --text: #eef4ff;
   --muted: rgba(238, 244, 255, 0.64);
   --accent: #8ee7ff;
+  --accent-strong: rgba(142, 231, 255, 0.16);
   --danger: rgba(255, 134, 167, 0.18);
   --danger-border: rgba(255, 134, 167, 0.22);
   --shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
@@ -54,7 +55,8 @@ input {
 }
 
 button,
-select {
+select,
+input[type='range'] {
   border: 1px solid transparent;
   outline: none;
 }
@@ -64,7 +66,8 @@ button {
 }
 
 button:disabled,
-select:disabled {
+select:disabled,
+input:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -107,7 +110,7 @@ select:disabled {
   top: max(20px, env(safe-area-inset-top));
   left: max(16px, env(safe-area-inset-left));
   right: max(16px, env(safe-area-inset-right));
-  max-width: 560px;
+  max-width: 620px;
   display: grid;
   gap: 10px;
   pointer-events: auto;
@@ -161,7 +164,8 @@ select:disabled {
 .dock-handle,
 .action-button,
 .primary-button,
-.sheet-card select {
+.sheet-card select,
+.sheet-card input[type='range'] {
   border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: var(--text);
@@ -222,8 +226,8 @@ select:disabled {
   position: relative;
   z-index: 1;
   margin: 0 auto;
-  width: min(560px, 100%);
-  max-height: min(78vh, 760px);
+  width: min(620px, 100%);
+  max-height: min(82vh, 820px);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 18px;
@@ -253,17 +257,30 @@ select:disabled {
 
 .sheet-header,
 .card-row,
-.sheet-footer {
+.sheet-footer,
+.bubble-list__item {
   display: flex;
   align-items: center;
   gap: 12px;
   justify-content: space-between;
 }
 
+.card-row--start {
+  align-items: flex-start;
+}
+
 .sheet-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.sheet-actions--tight {
+  gap: 8px;
+}
+
+.sheet-actions--inline {
+  flex-wrap: nowrap;
 }
 
 .sheet-header {
@@ -273,7 +290,6 @@ select:disabled {
 .sheet-header h2 {
   font-size: clamp(1.7rem, 5vw, 2.4rem);
 }
-
 
 .sheet-scroll {
   overflow: auto;
@@ -296,7 +312,13 @@ select:disabled {
   border-color: rgba(142, 231, 255, 0.18);
 }
 
-.sheet-card strong {
+.bubble-card.is-active {
+  border-color: rgba(142, 231, 255, 0.35);
+  background: linear-gradient(180deg, rgba(142, 231, 255, 0.1), rgba(255, 255, 255, 0.05));
+}
+
+.sheet-card strong,
+.bubble-list__item strong {
   font-size: 1rem;
 }
 
@@ -307,6 +329,36 @@ select:disabled {
   appearance: none;
 }
 
+.sheet-card input[type='range'] {
+  width: 100%;
+  min-height: 38px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.field-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.range-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.radio-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.radio-chip input {
+  margin: 0;
+}
+
 .action-button,
 .primary-button {
   padding: 0 16px;
@@ -314,6 +366,16 @@ select:disabled {
 
 .action-button {
   background: rgba(255, 255, 255, 0.08);
+}
+
+.action-button--primary-ghost {
+  border-color: rgba(142, 231, 255, 0.28);
+  background: rgba(142, 231, 255, 0.12);
+}
+
+.action-button--small {
+  min-height: 40px;
+  padding: 0 12px;
 }
 
 .action-button--danger {
@@ -328,6 +390,19 @@ select:disabled {
   font-weight: 800;
   background: linear-gradient(135deg, #86e4ff 0%, #aef1ff 100%);
   box-shadow: 0 10px 26px rgba(142, 231, 255, 0.28);
+}
+
+.bubble-list {
+  display: grid;
+  gap: 10px;
+}
+
+.bubble-list__item {
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .toast-stack {
@@ -380,17 +455,20 @@ select:disabled {
 
   .bottom-sheet__panel {
     width: 100%;
-    max-height: min(82vh, 760px);
+    max-height: min(86vh, 820px);
     padding-left: 16px;
     padding-right: 16px;
   }
 
-  .sheet-header {
+  .sheet-header,
+  .card-row,
+  .bubble-list__item {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .sheet-actions {
+  .sheet-actions,
+  .range-grid {
     display: grid;
     grid-template-columns: 1fr;
   }

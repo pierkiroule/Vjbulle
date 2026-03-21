@@ -2,15 +2,18 @@ import { useRef } from 'react';
 import { useEchoBubbleLoop } from './hooks/useEchoBubbleLoop';
 
 function getModeLabel(isListeningMode) {
-  return isListeningMode ? 'Listening' : 'Creation';
+  return isListeningMode ? 'Écoute' : 'Composition';
 }
 
-function getDockLabel({ isSessionActive, isListeningMode, selectedAsset }) {
+function getDockLabel({ isSessionActive, isSetValidated, setBubbles, isListeningMode }) {
   if (!isSessionActive) {
-    return selectedAsset ? 'Setup · ready' : 'Setup';
+    if (!setBubbles.length) {
+      return 'Préparer le set';
+    }
+    return isSetValidated ? 'Set validé · prêt pour AR' : 'Set à valider';
   }
 
-  return `Menu · ${getModeLabel(isListeningMode)}`;
+  return `AR · ${getModeLabel(isListeningMode)}`;
 }
 
 function App() {
@@ -21,19 +24,36 @@ function App() {
     audioLibrary,
     selectedAsset,
     selectedAssetId,
+    setBubbles,
+    selectedSetBubble,
+    activeSetBubbleId,
+    isSetValidated,
     isListeningMode,
     isArSupported,
     availabilityMessage,
     isSessionActive,
     bubbleCount,
+    placedBubbles,
     toasts,
     isHudVisible,
     isMenuOpen,
     isBusy,
+    isPlacementArmed,
+    previewingId,
     readiness,
     enterAr,
     importAudioFiles,
     selectAsset,
+    addSetBubble,
+    updateSetBubble,
+    removeSetBubble,
+    validateSet,
+    setActiveSetBubbleId,
+    playSetBubblePreview,
+    stopPreview,
+    togglePlacedBubbleAudio,
+    armPlacement,
+    cancelPlacement,
     toggleMode,
     toggleMenu,
     dismissMenu,
@@ -53,8 +73,8 @@ function App() {
   };
 
   const modeLabel = getModeLabel(isListeningMode);
-  const dockLabel = getDockLabel({ isSessionActive, isListeningMode, selectedAsset });
-  const nextModeAction = isListeningMode ? 'Switch to creation' : 'Switch to listening';
+  const dockLabel = getDockLabel({ isSessionActive, isSetValidated, setBubbles, isListeningMode });
+  const canEnterAr = isSetValidated && (isArSupported || isSessionActive) && !isBusy;
 
   return (
     <div className="app-shell" onPointerDown={pingHud}>
@@ -65,13 +85,16 @@ function App() {
           <section className="hero-copy-block">
             <div className="eyebrow">Spatial sound AR</div>
             <h1>EchoBubbleLoop</h1>
-            <p>Import a sound, pick the active source, then enter AR. Once inside, use one bottom menu for everything.</p>
+            <p>
+              Préparez d’abord un set léger et validé, puis passez en AR pour composer votre paysage sonore.
+              Vous pouvez revenir éditer le set à tout moment entre deux sessions.
+            </p>
           </section>
         )}
 
         <div className={`bottom-dock ${isHudVisible ? 'is-visible' : 'is-dimmed'}`}>
           <button type="button" className="dock-handle" onClick={toggleMenu}>
-            <span className="dock-handle__meta">{isSessionActive ? 'Controls' : 'Preparation'}</span>
+            <span className="dock-handle__meta">{isSessionActive ? 'Contrôles' : 'Préparation'}</span>
             <strong>{dockLabel}</strong>
           </button>
         </div>
@@ -83,29 +106,37 @@ function App() {
 
             <div className="sheet-header">
               <div>
-                <p className="sheet-kicker">{isSessionActive ? 'In AR' : 'Before AR'}</p>
-                <h2>{isSessionActive ? 'Quick controls' : 'Get ready'}</h2>
+                <p className="sheet-kicker">{isSessionActive ? 'Expérience AR' : 'Préparation du set'}</p>
+                <h2>{isSessionActive ? 'Composer le paysage' : 'Définir le set'}</h2>
               </div>
             </div>
 
             <div className="sheet-scroll">
               <section className="sheet-card sheet-card--status">
-                <span className="card-label">Current step</span>
-                <strong>{isSessionActive ? modeLabel : selectedAsset ? 'Ready to enter AR' : 'Add your first sound'}</strong>
+                <span className="card-label">État actuel</span>
+                <strong>
+                  {isSessionActive
+                    ? isPlacementArmed
+                      ? 'Pose en attente de confirmation'
+                      : modeLabel
+                    : isSetValidated
+                      ? 'Set validé et sauvegardé'
+                      : 'Set à préparer'}
+                </strong>
                 <p>{availabilityMessage || readiness}</p>
               </section>
 
               <section className="sheet-card">
                 <div className="card-row">
-                  <span className="card-label">Source</span>
-                  <strong>{audioLibrary.length} files</strong>
+                  <span className="card-label">Bibliothèque audio</span>
+                  <strong>{audioLibrary.length} fichier(s)</strong>
                 </div>
                 <select
                   value={selectedAssetId}
                   onChange={(event) => selectAsset(event.target.value)}
                   disabled={!audioLibrary.length}
                 >
-                  {!audioLibrary.length && <option value="">Import audio files first</option>}
+                  {!audioLibrary.length && <option value="">Importez des fichiers audio</option>}
                   {audioLibrary.map((asset) => (
                     <option key={asset.id} value={asset.id}>
                       {asset.name}
@@ -114,11 +145,116 @@ function App() {
                 </select>
                 <div className="sheet-actions">
                   <button type="button" className="action-button" onClick={openFilePicker}>
-                    Import audio
+                    Importer audio
+                  </button>
+                  {selectedAsset && (
+                    <button type="button" className="action-button" onClick={() => stopPreview()}>
+                      Stop preview source
+                    </button>
+                  )}
+                </div>
+                <p>
+                  {selectedAsset
+                    ? `Source active : ${selectedAsset.name}. Utilisez-la pour créer rapidement une bulle de set.`
+                    : 'Commencez par importer vos sons de travail.'}
+                </p>
+              </section>
+
+              <section className="sheet-card">
+                <div className="card-row">
+                  <span className="card-label">Set de bulles</span>
+                  <strong>{setBubbles.length}/8 bulles</strong>
+                </div>
+                <div className="sheet-actions">
+                  <button type="button" className="action-button" onClick={addSetBubble} disabled={!audioLibrary.length || setBubbles.length >= 8}>
+                    Ajouter une bulle
+                  </button>
+                  <button type="button" className="action-button action-button--primary-ghost" onClick={validateSet} disabled={!setBubbles.length}>
+                    Valider & sauvegarder
                   </button>
                 </div>
-                <p>{selectedAsset ? `Active source: ${selectedAsset.name}` : 'New bubbles always use the active source.'}</p>
+                <p>
+                  Sans set défini, validé et sauvegardé, la phase de composition reste verrouillée pour alléger l’interface.
+                </p>
               </section>
+
+              {setBubbles.map((bubble) => {
+                const bubbleAsset = audioLibrary.find((asset) => asset.id === bubble.assetId);
+                const isPreviewing = previewingId === bubble.id;
+                return (
+                  <section
+                    key={bubble.id}
+                    className={`sheet-card bubble-card ${activeSetBubbleId === bubble.id ? 'is-active' : ''}`}
+                  >
+                    <div className="card-row card-row--start">
+                      <label className="radio-chip">
+                        <input
+                          type="radio"
+                          name="active-set-bubble"
+                          checked={activeSetBubbleId === bubble.id}
+                          onChange={() => setActiveSetBubbleId(bubble.id)}
+                        />
+                        <span>{bubble.label}</span>
+                      </label>
+                      <strong>{bubbleAsset?.name || 'Source à définir'}</strong>
+                    </div>
+
+                    <label className="field-stack">
+                      <span className="card-label">Source audio</span>
+                      <select
+                        value={bubble.assetId}
+                        onChange={(event) => updateSetBubble(bubble.id, { assetId: event.target.value })}
+                        disabled={!audioLibrary.length}
+                      >
+                        <option value="">Choisir une source</option>
+                        {audioLibrary.map((asset) => (
+                          <option key={asset.id} value={asset.id}>
+                            {asset.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div className="range-grid">
+                      <label className="field-stack">
+                        <span className="card-label">Portée · {bubble.range} m</span>
+                        <input
+                          type="range"
+                          min="2"
+                          max="18"
+                          step="1"
+                          value={bubble.range}
+                          onChange={(event) => updateSetBubble(bubble.id, { range: Number(event.target.value) })}
+                        />
+                      </label>
+
+                      <label className="field-stack">
+                        <span className="card-label">Volume initial · {bubble.volume}%</span>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          step="1"
+                          value={bubble.volume}
+                          onChange={(event) => updateSetBubble(bubble.id, { volume: Number(event.target.value) })}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="sheet-actions sheet-actions--tight">
+                      <button type="button" className="action-button" onClick={() => playSetBubblePreview(bubble.id)} disabled={!bubble.assetId}>
+                        {isPreviewing ? 'Play en cours' : 'Play'}
+                      </button>
+                      <button type="button" className="action-button" onClick={stopPreview}>
+                        Stop
+                      </button>
+                      <button type="button" className="action-button action-button--danger" onClick={() => removeSetBubble(bubble.id)}>
+                        Supprimer
+                      </button>
+                    </div>
+                  </section>
+                );
+              })}
 
               {isSessionActive && (
                 <>
@@ -129,21 +265,67 @@ function App() {
                     </div>
                     <div className="sheet-actions">
                       <button type="button" className="action-button" onClick={toggleMode}>
-                        {nextModeAction}
+                        {isListeningMode ? 'Passer en composition' : 'Passer en écoute'}
                       </button>
+                      {!isListeningMode && (
+                        <>
+                          <button
+                            type="button"
+                            className="action-button action-button--primary-ghost"
+                            onClick={armPlacement}
+                            disabled={!selectedSetBubble || !isSetValidated}
+                          >
+                            Préparer la pose
+                          </button>
+                          {isPlacementArmed && (
+                            <button type="button" className="action-button" onClick={cancelPlacement}>
+                              Annuler la pose
+                            </button>
+                          )}
+                        </>
+                      )}
                     </div>
-                    <p>{isListeningMode ? 'Walk through the scene and listen.' : 'Tap in AR to place bubbles where you look.'}</p>
+                    <p>
+                      Sélectionnez une bulle du set, préparez la pose, puis touchez la scène pour confirmer son placement.
+                    </p>
+                  </section>
+
+                  <section className="sheet-card">
+                    <div className="card-row">
+                      <span className="card-label">Bulle prête</span>
+                      <strong>{selectedSetBubble ? selectedSetBubble.label : 'Aucune sélection'}</strong>
+                    </div>
+                    <p>
+                      {selectedSetBubble
+                        ? `Portée ${selectedSetBubble.range} m · volume ${selectedSetBubble.volume}%`
+                        : 'Choisissez une bulle dans le set pour composer.'}
+                    </p>
                   </section>
 
                   {bubbleCount > 0 && (
                     <section className="sheet-card">
                       <div className="card-row">
-                        <span className="card-label">Scene</span>
-                        <strong>{bubbleCount}/8 bubbles</strong>
+                        <span className="card-label">Paysage courant</span>
+                        <strong>{bubbleCount}/8 bulles posées</strong>
+                      </div>
+                      <div className="bubble-list">
+                        {placedBubbles.map((bubble) => (
+                          <div key={bubble.id} className="bubble-list__item">
+                            <div>
+                              <strong>{bubble.label}</strong>
+                              <p>{bubble.assetName} · {bubble.range} m · {bubble.volume}%</p>
+                            </div>
+                            <div className="sheet-actions sheet-actions--tight sheet-actions--inline">
+                              <button type="button" className="action-button action-button--small" onClick={() => togglePlacedBubbleAudio(bubble.id)}>
+                                {bubble.isPlaying ? 'Stop' : 'Play'}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                       <div className="sheet-actions">
                         <button type="button" className="action-button action-button--danger" onClick={() => clearAllBubbles(true)}>
-                          Clear bubbles
+                          Vider la composition
                         </button>
                       </div>
                     </section>
@@ -157,9 +339,9 @@ function App() {
                 type="button"
                 className="primary-button"
                 onClick={enterAr}
-                disabled={(!isArSupported && !isSessionActive) || isBusy}
+                disabled={!canEnterAr}
               >
-                {isBusy ? 'Starting…' : isSessionActive ? 'Exit AR' : 'Enter AR'}
+                {isBusy ? 'Starting…' : isSessionActive ? 'Quitter AR' : 'Entrer en AR'}
               </button>
             </div>
           </div>
