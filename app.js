@@ -7,6 +7,8 @@ const DEFAULT_BPM = 90;
 const SPAWN_DISTANCE = 0.4;
 const STUCK_DISTANCE = 0.6;
 const LONG_PRESS_MS = 520;
+const UI_IDLE_FADE_MS = 2200;
+const CONTEXT_PANEL_AUTOHIDE_MS = 2400;
 const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
 
 const dom = {
@@ -21,12 +23,14 @@ const dom = {
   configBpm: document.querySelector('#config-bpm'),
   bubbleCount: document.querySelector('#bubble-count'),
   importAudio: document.querySelector('#import-audio'),
+  createBtn: document.querySelector('#create-btn'),
   clearPads: document.querySelector('#clear-pads'),
   clearBubbles: document.querySelector('#clear-bubbles'),
   bubbleToggle: document.querySelector('#bubble-toggle'),
   bubblePanel: document.querySelector('#bubble-panel'),
   bubbleTitle: document.querySelector('#bubble-title'),
   bubbleStick: document.querySelector('#bubble-stick'),
+  bubbleDelete: document.querySelector('#bubble-delete'),
   rangeSlider: document.querySelector('#range-slider'),
   rangeValue: document.querySelector('#range-value'),
   gainSlider: document.querySelector('#gain-slider'),
@@ -44,6 +48,7 @@ const dom = {
   dockBody: document.querySelector('#dock-body'),
   undoBtn: document.querySelector('#undo-btn'),
   fileInput: document.querySelector('#file-input'),
+  arCrosshair: document.querySelector('#ar-crosshair'),
 };
 
 const shared = {
@@ -77,6 +82,9 @@ const state = {
   arSupported: false,
   sessionUsesDomOverlay: false,
   bufferCache: new Map(),
+  activePadIndex: null,
+  uiIdleTimer: 0,
+  bubblePanelTimer: 0,
   ui: {
     configOpen: false,
     sourceOpen: false,
@@ -118,6 +126,20 @@ function setupThree() {
   state.renderer.setSize(window.innerWidth, window.innerHeight);
   dom.xrRoot.appendChild(state.renderer.domElement);
 
+  state.renderer.xr.addEventListener('sessionstart', () => {
+    document.body.classList.add('ar-mode');
+    dom.arCrosshair.classList.remove('hidden');
+    bumpArUiActivity();
+  });
+
+  state.renderer.xr.addEventListener('sessionend', () => {
+    document.body.classList.remove('ar-mode');
+    dom.arCrosshair.classList.add('hidden');
+    document.body.classList.remove('ar-ui-idle');
+    window.clearTimeout(state.uiIdleTimer);
+    window.clearTimeout(state.bubblePanelTimer);
+  });
+
   window.addEventListener('resize', onResize);
 }
 
@@ -128,19 +150,40 @@ function bindUi() {
     state.sourcePadIndex = null;
     dom.fileInput.click();
   });
+  dom.createBtn.addEventListener('click', createBubbleFromActivePad);
   dom.clearPads.addEventListener('click', clearPads);
   dom.clearBubbles.addEventListener('click', clearBubbles);
   dom.undoBtn.addEventListener('click', undoLastBubble);
   dom.dockToggle.addEventListener('click', () => togglePanel('dock'));
   dom.sourceToggle.addEventListener('click', () => togglePanel('source'));
   dom.bubbleToggle.addEventListener('click', () => togglePanel('bubble'));
-  dom.bubbleStick.addEventListener('click', toggleSelectedStickiness);
-  dom.rangeSlider.addEventListener('input', updateSelectedBubbleUi);
-  dom.gainSlider.addEventListener('input', updateSelectedBubbleUi);
+  dom.bubbleStick.addEventListener('click', () => {
+    bumpArUiActivity();
+    toggleSelectedStickiness();
+    keepBubblePanelVisible();
+  });
+  dom.bubbleDelete.addEventListener('click', () => {
+    bumpArUiActivity();
+    deleteSelectedBubble();
+  });
+  dom.rangeSlider.addEventListener('input', () => {
+    bumpArUiActivity();
+    updateSelectedBubbleUi();
+    keepBubblePanelVisible();
+  });
+  dom.gainSlider.addEventListener('input', () => {
+    bumpArUiActivity();
+    updateSelectedBubbleUi();
+    keepBubblePanelVisible();
+  });
   dom.closeSource.addEventListener('click', minimizeSourceSheet);
   dom.sourceImport.addEventListener('click', () => dom.fileInput.click());
   dom.sourceRecord.addEventListener('click', toggleRecording);
   dom.fileInput.addEventListener('change', onFilePicked);
+
+  ['pointerdown', 'pointermove', 'pointerup'].forEach((eventName) => {
+    document.addEventListener(eventName, bumpArUiActivity, { passive: true });
+  });
 
   const canRecord = Boolean(window.MediaRecorder && navigator.mediaDevices?.getUserMedia && AudioContextCtor);
   dom.sourceRecord.disabled = !canRecord;
@@ -182,15 +225,26 @@ function togglePanel(panel) {
 }
 
 function syncOverlayUi() {
+  const inAr = Boolean(state.xrSession);
   dom.configPanel.classList.toggle('hidden', !state.ui.configOpen);
 
   const hasSourceContext = state.sourcePadIndex !== null;
-  dom.sourceToggle.classList.toggle('hidden', !hasSourceContext);
-  dom.sourceSheet.classList.toggle('hidden', !(hasSourceContext && state.ui.sourceOpen));
+  dom.sourceToggle.classList.toggle('hidden', inAr || !hasSourceContext);
+  dom.sourceSheet.classList.toggle('hidden', inAr || !(hasSourceContext && state.ui.sourceOpen));
 
   const hasBubbleContext = Boolean(state.selectedBubbleId);
-  dom.bubbleToggle.classList.toggle('hidden', !hasBubbleContext);
-  dom.bubblePanel.classList.toggle('hidden', !(hasBubbleContext && state.ui.bubbleOpen));
+  dom.bubbleToggle.classList.toggle('hidden', inAr || !hasBubbleContext);
+  if (inAr && hasBubbleContext) {
+    dom.bubblePanel.classList.remove('hidden');
+    dom.bubblePanel.classList.toggle('is-visible', state.ui.bubbleOpen);
+  } else {
+    dom.bubblePanel.classList.remove('is-visible');
+    dom.bubblePanel.classList.toggle('hidden', !(hasBubbleContext && state.ui.bubbleOpen));
+  }
+
+  const hasActivePad = getActivePadIndex() !== -1;
+  dom.createBtn.classList.toggle('hidden', !inAr || !hasActivePad);
+  dom.createBtn.setAttribute('aria-disabled', String(!hasActivePad));
 
   dom.bottomDock.classList.toggle('is-collapsed', !state.ui.dockOpen);
   dom.dockBody.classList.toggle('hidden', !state.ui.dockOpen);
@@ -236,6 +290,7 @@ function syncTempoUi() {
   const label = `${state.tempo.bpm} BPM`;
   dom.tempoText.textContent = label;
   dom.configBpm.textContent = label;
+  document.body.style.setProperty('--tempo-beat', `${state.tempo.beatDuration}s`);
   syncBubbleCount();
 }
 
@@ -273,12 +328,73 @@ function renderPads() {
 }
 
 function handlePadTap(index) {
+  armPad(index);
   const pad = state.pads[index];
   if (!pad.url) {
     openSourceSheet(index, false);
     return;
   }
   void createBubbleFromPad(pad);
+}
+
+
+function armPad(index) {
+  if (!state.pads[index]?.url) return;
+  state.activePadIndex = index;
+}
+
+function getActivePadIndex() {
+  if (state.activePadIndex !== null && state.pads[state.activePadIndex]?.url) {
+    return state.activePadIndex;
+  }
+
+  return state.pads.findIndex((pad) => Boolean(pad.url));
+}
+
+async function createBubbleFromActivePad() {
+  bumpArUiActivity();
+  const index = getActivePadIndex();
+  if (index === -1) {
+    setStatus('Load a pad before creating a bubble.');
+    return;
+  }
+
+  armPad(index);
+  await createBubbleFromPad(state.pads[index]);
+}
+
+function keepBubblePanelVisible() {
+  if (!state.xrSession || !state.selectedBubbleId) return;
+
+  state.ui.bubbleOpen = true;
+  syncOverlayUi();
+  window.clearTimeout(state.bubblePanelTimer);
+  state.bubblePanelTimer = window.setTimeout(() => {
+    if (state.xrSession && state.selectedBubbleId) {
+      state.ui.bubbleOpen = false;
+      syncOverlayUi();
+    }
+  }, CONTEXT_PANEL_AUTOHIDE_MS);
+}
+
+function bumpArUiActivity() {
+  if (!state.xrSession) return;
+
+  document.body.classList.remove('ar-ui-idle');
+  window.clearTimeout(state.uiIdleTimer);
+  state.uiIdleTimer = window.setTimeout(() => {
+    if (state.xrSession) {
+      document.body.classList.add('ar-ui-idle');
+    }
+  }, UI_IDLE_FADE_MS);
+}
+
+function deleteSelectedBubble() {
+  const bubble = getSelectedBubble();
+  if (!bubble) return;
+
+  fadeOutAndRemoveBubble(bubble);
+  setStatus(`${bubble.name} deleted.`);
 }
 
 function openSourceSheet(index, replacing) {
@@ -322,6 +438,7 @@ async function onFilePicked(event) {
     state.pads[slot] = pad;
     savePads();
     closeSourceSheet();
+    armPad(slot);
     renderPads();
     setStatus(`${pad.name} is ready. Tap the pad to place a bubble.`);
     state.ui.dockOpen = true;
@@ -468,6 +585,7 @@ async function createBubbleFromPad(pad) {
     state.bubbles.push(bubble);
     state.lastCreatedBubbleIds.push(bubble.id);
     selectBubble(bubble.id);
+    bumpArUiActivity();
     syncBubbleCount();
     setStatus(`${pad.name} joins on the next beat.`);
   } catch (error) {
@@ -557,19 +675,11 @@ async function startArSession() {
   }
 
   try {
-    let session;
-    try {
-      session = await navigator.xr.requestSession('immersive-ar', {
-        requiredFeatures: ['local'],
-        optionalFeatures: ['dom-overlay'],
-        domOverlay: { root: document.body },
-      });
-    } catch (overlayError) {
-      console.warn('Retrying immersive-ar without DOM overlay.', overlayError);
-      session = await navigator.xr.requestSession('immersive-ar', {
-        requiredFeatures: ['local'],
-      });
-    }
+    const session = await navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures: ['local'],
+      optionalFeatures: ['dom-overlay'],
+      domOverlay: { root: document.body },
+    });
 
     await attachSession(session);
     setStatus('Tap a filled pad to place a loop bubble in front of you.');
@@ -593,6 +703,9 @@ async function attachSession(session) {
   dom.enterAr.textContent = 'Exit AR';
   document.body.classList.add('is-ar-active');
   state.ui.dockOpen = false;
+  state.ui.configOpen = false;
+  state.ui.sourceOpen = false;
+  bumpArUiActivity();
   syncOverlayUi();
   if (!state.sessionUsesDomOverlay) {
     setStatus('AR started. Device DOM overlay is unavailable, so UI may be limited inside the session.');
@@ -609,6 +722,9 @@ function onSessionEnd(event) {
   state.lastXRFrame = null;
   state.sessionUsesDomOverlay = false;
   document.body.classList.remove('is-ar-active');
+  document.body.classList.remove('ar-ui-idle');
+  window.clearTimeout(state.uiIdleTimer);
+  window.clearTimeout(state.bubblePanelTimer);
   dom.enterAr.textContent = 'Enter AR';
   window.clearTimeout(state.longPressTimer);
   setStatus('AR session ended. Re-enter to sculpt more sound.');
@@ -633,6 +749,7 @@ async function checkArSupport() {
 }
 
 function selectBubble(bubbleId) {
+  window.clearTimeout(state.bubblePanelTimer);
   state.selectedBubbleId = bubbleId;
   const bubble = state.bubbles.find((item) => item.id === bubbleId);
   if (!bubble) {
@@ -661,6 +778,8 @@ function selectBubble(bubbleId) {
     item.mesh.material.emissiveIntensity = selected ? 1.0 : 0.6;
     item.aura.material.opacity = selected ? 0.1 : 0.05;
   });
+
+  keepBubblePanelVisible();
 }
 
 function getSelectedBubble() {
@@ -737,6 +856,7 @@ async function finishRecording() {
     state.pads[slot] = pad;
     savePads();
     closeSourceSheet();
+    armPad(slot);
     renderPads();
     setStatus(`${pad.name} captured and ready.`);
     state.ui.dockOpen = true;
@@ -760,6 +880,7 @@ function cleanupRecorder() {
 
 function clearPads() {
   state.pads = Array.from({ length: MAX_PADS }, (_, index) => createEmptyPad(index));
+  state.activePadIndex = null;
   state.bufferCache.clear();
   savePads();
   closeSourceSheet();
@@ -823,33 +944,26 @@ function fadeOutAndRemoveBubble(bubble) {
   }, 260);
 }
 
-function onSessionSelectStart(event) {
-  const hit = pickBubble(event.frame, event.inputSource);
-  if (!hit) return;
-
-  selectBubble(hit.id);
-  window.clearTimeout(state.longPressTimer);
-  state.longPressTimer = window.setTimeout(() => {
-    const selected = getSelectedBubble();
-    if (selected?.id === hit.id) {
-      fadeOutAndRemoveBubble(selected);
-      setStatus(`${selected.name} popped.`);
-    }
-  }, LONG_PRESS_MS);
+function onSessionSelectStart() {
+  bumpArUiActivity();
 }
 
 function onSessionSelectEnd(event) {
   window.clearTimeout(state.longPressTimer);
-  const hit = pickBubble(event.frame, event.inputSource);
+  bumpArUiActivity();
+  const hit = pickBubble(event.frame);
   if (hit) {
     selectBubble(hit.id);
+    return;
   }
+
+  selectBubble(null);
 }
 
-function pickBubble(frame = state.lastXRFrame, inputSource = null) {
+function pickBubble(frame = state.lastXRFrame) {
   if (!state.bubbles.length) return null;
 
-  const ray = getTargetRay(frame, inputSource);
+  const ray = getTargetRay(frame);
   if (!ray) return null;
 
   shared.raycaster.set(ray.origin, ray.direction);
@@ -859,23 +973,7 @@ function pickBubble(frame = state.lastXRFrame, inputSource = null) {
   return state.bubbles.find((bubble) => bubble.mesh === hits[0].object) || null;
 }
 
-function getTargetRay(frame = state.lastXRFrame, inputSource = null) {
-  const referenceSpace = state.renderer.xr.getReferenceSpace?.();
-  if (frame && inputSource?.targetRaySpace && referenceSpace) {
-    const pose = frame.getPose(inputSource.targetRaySpace, referenceSpace);
-    if (pose) {
-      shared.origin.set(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
-      shared.quaternion.set(
-        pose.transform.orientation.x,
-        pose.transform.orientation.y,
-        pose.transform.orientation.z,
-        pose.transform.orientation.w,
-      );
-      shared.direction.set(0, 0, -1).applyQuaternion(shared.quaternion).normalize();
-      return { origin: shared.origin.clone(), direction: shared.direction.clone() };
-    }
-  }
-
+function getTargetRay(_frame = state.lastXRFrame) {
   const pose = getPlacementPose();
   return { origin: pose.position, direction: pose.forward };
 }

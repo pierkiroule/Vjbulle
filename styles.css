@@ -11,6 +11,7 @@
   --radius-xl: 24px;
   --radius-lg: 18px;
   --radius-md: 14px;
+  --tempo-beat: 0.6667s;
 }
 
 * {
@@ -33,7 +34,6 @@ body {
 
 body {
   position: fixed;
-  inset: 0;
 }
 
 button,
@@ -97,7 +97,8 @@ button {
 .status-pill,
 .floating-panel,
 .bottom-dock,
-.panel-toggle {
+.panel-toggle,
+.ar-create-btn {
   pointer-events: auto;
 }
 
@@ -105,7 +106,8 @@ button {
 .status-pill,
 .floating-panel,
 .bottom-dock,
-.panel-toggle {
+.panel-toggle,
+.ar-create-btn {
   border-radius: var(--radius-xl);
 }
 
@@ -137,7 +139,8 @@ button {
 .panel-head,
 .source-actions,
 .slider-row,
-.dock-head {
+.dock-head,
+.bubble-actions {
   display: flex;
   gap: 10px;
   align-items: center;
@@ -147,7 +150,8 @@ button {
 .ghost-btn,
 .icon-btn,
 .panel-toggle,
-.dock-toggle {
+.dock-toggle,
+.ar-create-btn {
   min-height: 42px;
   border-radius: 999px;
   padding: 0 16px;
@@ -160,7 +164,8 @@ button {
 }
 
 .icon-btn,
-.panel-toggle {
+.panel-toggle,
+.ar-create-btn {
   width: 42px;
   padding: 0;
   display: inline-flex;
@@ -255,7 +260,8 @@ button {
   accent-color: var(--accent);
 }
 
-.source-actions {
+.source-actions,
+.bubble-actions {
   margin-top: 14px;
   flex-direction: column;
 }
@@ -263,6 +269,18 @@ button {
 .panel-toggle {
   position: absolute;
   right: max(14px, env(safe-area-inset-right));
+}
+
+.ar-create-btn {
+  position: absolute;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  width: 50px;
+  height: 50px;
+  font-size: 1.55rem;
+  line-height: 1;
+  opacity: 0.82;
+  transition: opacity 180ms ease, transform 180ms ease, box-shadow 180ms ease;
 }
 
 #source-toggle {
@@ -353,6 +371,40 @@ button {
   color: var(--muted);
 }
 
+.ar-crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: 0 0 0 1px rgba(143, 232, 255, 0.12), 0 0 14px rgba(143, 232, 255, 0.12);
+  opacity: 0.72;
+}
+
+.ar-crosshair::before,
+.ar-crosshair::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: rgba(255, 255, 255, 0.58);
+  transform: translate(-50%, -50%);
+}
+
+.ar-crosshair::before {
+  width: 1px;
+  height: 20px;
+}
+
+.ar-crosshair::after {
+  width: 20px;
+  height: 1px;
+}
+
 body.is-ar-active .top-bar {
   right: auto;
   gap: 12px;
@@ -368,6 +420,73 @@ body.is-ar-active .status-pill {
   top: calc(max(14px, env(safe-area-inset-top)) + 66px);
   max-width: min(100%, 360px);
   padding: 10px 12px;
+}
+
+body.ar-mode #top-bar,
+body.ar-mode #config-panel,
+body.ar-mode #status-pill,
+body.ar-mode #source-sheet,
+body.ar-mode #source-toggle,
+body.ar-mode #bubble-toggle,
+body.ar-mode #bottom-dock {
+  display: none !important;
+}
+
+body.ar-mode #create-btn {
+  display: inline-flex !important;
+  opacity: 0.25;
+}
+
+body.ar-mode #create-btn:active,
+body.ar-mode .bubble-panel:active {
+  opacity: 0.9;
+}
+
+body.ar-mode .ar-crosshair {
+  display: block !important;
+  animation: crosshair-pulse var(--tempo-beat) ease-in-out infinite;
+}
+
+body.ar-mode .bubble-panel {
+  left: 50%;
+  right: auto;
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  width: min(320px, calc(100vw - 48px));
+  transform: translate(-50%, 18px) scale(0.96);
+  transform-origin: center bottom;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 220ms ease,
+    transform 220ms ease,
+    visibility 220ms ease;
+  background: linear-gradient(180deg, rgba(10, 16, 31, 0.68), rgba(10, 16, 31, 0.5));
+}
+
+body.ar-mode .bubble-panel.is-visible {
+  opacity: 0.94;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translate(-50%, 0) scale(1);
+}
+
+body.ar-mode.ar-ui-idle #create-btn,
+body.ar-mode.ar-ui-idle .bubble-panel.is-visible,
+body.ar-mode.ar-ui-idle .ar-crosshair {
+  opacity: 0.08;
+}
+
+@keyframes crosshair-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 1px rgba(143, 232, 255, 0.12), 0 0 14px rgba(143, 232, 255, 0.12);
+  }
+  50% {
+    transform: scale(1.06);
+    box-shadow: 0 0 0 1px rgba(143, 232, 255, 0.24), 0 0 20px rgba(143, 232, 255, 0.24);
+  }
 }
 
 @media (max-width: 720px) {
