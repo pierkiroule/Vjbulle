@@ -3,7 +3,7 @@ import { useEchoBubbleLoop } from './hooks/useEchoBubbleLoop';
 
 function formatPadMeta(pad) {
   if (!pad.buffer) {
-    return 'Tap · import ou micro';
+    return 'Tap · import / mic';
   }
 
   return `${pad.bars} bar · ${pad.bpm} BPM · ${pad.loopEnd.toFixed(2)}s`;
@@ -25,7 +25,6 @@ function App() {
     pendingPadId,
     isRecordingMic,
     menuOpen,
-    activePadCount,
     readiness,
     toasts,
     enterAr,
@@ -89,13 +88,12 @@ function App() {
       <div ref={sceneHostRef} className="scene-host" aria-hidden="true" />
 
       <div ref={overlayRootRef} className={`overlay-root ${isSessionActive ? 'is-ar' : ''}`}>
-        <div className="top-hud looper-strip">
+        <div className="top-hud top-hud--minimal">
           <div className="glass-pill hud-status hud-status--compact">
             <div>
-              <span className="hud-label">AR Looper</span>
-              <strong>{bpm} BPM</strong>
+              <span className="hud-label">AR Bubble Looper</span>
+              <strong>{bpm} BPM · {bubbleCount}/8 bubbles</strong>
             </div>
-            <span className="hud-chip">{bubbleCount}/8</span>
           </div>
 
           <div className="hud-actions">
@@ -109,11 +107,11 @@ function App() {
         </div>
 
         {menuOpen && (
-          <div className="glass-sheet mini-menu mini-menu--floating">
+          <div className="glass-sheet mini-menu mini-menu--floating mini-menu--compact">
             <p>{readiness}</p>
             <div className="mini-menu__actions">
               <button type="button" className="action-button" onClick={() => clearAllBubbles(true)} disabled={!bubbleCount}>
-                Vider
+                Vider les bulles
               </button>
               <button type="button" className="action-button" onClick={() => setMenuOpen(false)}>
                 Fermer
@@ -129,7 +127,7 @@ function App() {
         )}
 
         {!!pendingPadId && (
-          <div className="glass-pill source-sheet source-sheet--inline">
+          <div className="glass-pill source-sheet source-sheet--inline source-sheet--compact">
             <div>
               <span className="hud-label">Pad {pendingPadId.split('-').at(-1)}</span>
               <strong>{filledPadIds.has(pendingPadId) ? 'Remplacer le sample' : 'Ajouter un sample'}</strong>
@@ -157,9 +155,8 @@ function App() {
         )}
 
         <div className="bottom-hud bottom-hud--minimal">
-          <div className="glass-pill compact-instructions compact-instructions--inline">
-            <strong>{activePadCount}/8 pads</strong>
-            <p>{readiness}</p>
+          <div className="glass-pill compact-instructions compact-instructions--inline compact-instructions--minimal">
+            <strong>{readiness}</strong>
           </div>
 
           <div className="pad-carousel" role="list" aria-label="Pads audio">
