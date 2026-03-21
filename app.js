@@ -346,9 +346,9 @@ async function ensureAudioContext() {
 function buildBubbleProfile(index, total) {
   const normalized = total <= 1 ? 0.5 : index / (total - 1);
   return {
-    visualRadius: THREE.MathUtils.lerp(0.16, 0.3, normalized),
-    range: THREE.MathUtils.lerp(1.9, 3.8, normalized),
-    gainMax: THREE.MathUtils.lerp(0.25, 0.82, normalized),
+    visualRadius: THREE.MathUtils.lerp(0.22, 0.38, normalized),
+    range: THREE.MathUtils.lerp(2.2, 4.2, normalized),
+    gainMax: THREE.MathUtils.lerp(0.28, 0.86, normalized),
   };
 }
 
@@ -356,8 +356,13 @@ function createBubbleVisual(radius, isUnlocked) {
   const group = new THREE.Group();
 
   const halo = new THREE.Mesh(
-    new THREE.SphereGeometry(radius * 1.38, 28, 28),
-    new THREE.MeshBasicMaterial({ color: 0x74dbff, transparent: true, opacity: 0.08 }),
+    new THREE.SphereGeometry(radius * 1.46, 28, 28),
+    new THREE.MeshBasicMaterial({
+      color: 0x74dbff,
+      transparent: true,
+      opacity: 0.16,
+      depthWrite: false,
+    }),
   );
 
   const shell = new THREE.Mesh(
@@ -365,37 +370,58 @@ function createBubbleVisual(radius, isUnlocked) {
     new THREE.MeshPhysicalMaterial({
       color: 0x8be4ff,
       transparent: true,
-      opacity: 0.34,
-      roughness: 0.14,
+      opacity: 0.52,
+      roughness: 0.1,
       metalness: 0.02,
-      transmission: 0.08,
+      transmission: 0.04,
       ior: 1.12,
-      thickness: 0.28,
+      thickness: 0.4,
+      depthWrite: false,
       emissive: isUnlocked ? 0x4fd5ff : 0x3b5265,
-      emissiveIntensity: isUnlocked ? 1.05 : 0.4,
+      emissiveIntensity: isUnlocked ? 1.4 : 0.7,
     }),
   );
 
   const core = new THREE.Mesh(
-    new THREE.SphereGeometry(radius * 0.46, 24, 24),
-    new THREE.MeshBasicMaterial({ color: isUnlocked ? 0xf8fdff : 0x8fa7bd, transparent: true, opacity: 0.82 }),
+    new THREE.SphereGeometry(radius * 0.52, 24, 24),
+    new THREE.MeshBasicMaterial({
+      color: isUnlocked ? 0xf8fdff : 0xa7bfd4,
+      transparent: true,
+      opacity: 0.96,
+      depthWrite: false,
+    }),
   );
 
-  group.add(halo, shell, core);
+  const aura = new THREE.Mesh(
+    new THREE.SphereGeometry(radius * 1.08, 24, 24),
+    new THREE.MeshBasicMaterial({
+      color: isUnlocked ? 0xa8eeff : 0x6a8ca7,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.26,
+      depthWrite: false,
+    }),
+  );
+
+  group.add(halo, shell, aura, core);
   group.userData.shell = shell;
   group.userData.core = core;
+  group.userData.aura = aura;
   return group;
 }
 
 function setBubbleVisualState(bubble) {
   const shell = bubble.root.userData.shell;
   const core = bubble.root.userData.core;
-  if (!shell || !core) {
+  const aura = bubble.root.userData.aura;
+  if (!shell || !core || !aura) {
     return;
   }
   shell.material.emissive.setHex(bubble.isUnlocked ? 0x4fd5ff : 0x3b5265);
-  shell.material.emissiveIntensity = bubble.isUnlocked ? 1.05 : 0.4;
-  core.material.color.setHex(bubble.isUnlocked ? 0xf8fdff : 0x8fa7bd);
+  shell.material.emissiveIntensity = bubble.isUnlocked ? 1.4 : 0.7;
+  core.material.color.setHex(bubble.isUnlocked ? 0xf8fdff : 0xa7bfd4);
+  aura.material.color.setHex(bubble.isUnlocked ? 0xa8eeff : 0x6a8ca7);
+  aura.material.opacity = bubble.isUnlocked ? 0.3 : 0.18;
 }
 
 function createBubbleAudio(asset) {
@@ -482,6 +508,13 @@ function getForwardPosition(distance) {
   return cameraPosition.add(scratch.forward.multiplyScalar(distance));
 }
 
+function getBubblePlaneY(cameraPosition) {
+  if (!state.xrSession) {
+    return cameraPosition.y;
+  }
+  return Math.max(1.15, cameraPosition.y - 0.22);
+}
+
 async function spawnBubble(asset, position, profile, options = {}) {
   await ensureAudioContext();
 
@@ -566,12 +599,13 @@ async function generateScene() {
 
   const count = clampBubbleCount(state.bubbleCount);
   const cameraPosition = getCameraWorldPosition();
+  const bubblePlaneY = getBubblePlaneY(cameraPosition);
 
   for (let i = 0; i < count; i += 1) {
     const angle = (i / count) * Math.PI * 2;
     const x = Math.cos(angle) * RING_RADIUS;
     const z = Math.sin(angle) * RING_RADIUS;
-    const position = new THREE.Vector3(cameraPosition.x + x, 0, cameraPosition.z + z);
+    const position = new THREE.Vector3(cameraPosition.x + x, bubblePlaneY, cameraPosition.z + z);
     const profile = buildBubbleProfile(i, count);
     await spawnBubble(assets[i % assets.length], position, profile, { stuck: false });
   }
