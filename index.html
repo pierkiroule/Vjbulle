@@ -9,23 +9,23 @@
     <title>EchoBubbleLoop</title>
     <meta
       name="description"
-      content="EchoBubbleLoop is a spatial audio instrument for sculpting glowing sound bubbles around you in real time."
+      content="EchoBubbleLoop is a fullscreen AR spatial-audio instrument with glowing bubbles you touch to wake and sculpt."
     />
     <style>
       :root {
         color-scheme: dark;
-        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        --bg: #050814;
-        --bg-soft: rgba(10, 14, 27, 0.78);
-        --bg-panel: rgba(14, 19, 35, 0.82);
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        --bg: #060813;
+        --panel: rgba(9, 12, 24, 0.72);
+        --panel-strong: rgba(12, 16, 30, 0.84);
         --line: rgba(255, 255, 255, 0.12);
-        --line-strong: rgba(141, 227, 255, 0.28);
+        --line-strong: rgba(129, 226, 255, 0.28);
         --text: #edf5ff;
-        --muted: rgba(237, 245, 255, 0.7);
-        --accent: #96ebff;
-        --accent-2: #9f9cff;
-        --danger: #ff9bcb;
-        --shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+        --muted: rgba(237, 245, 255, 0.68);
+        --accent: #8ce7ff;
+        --accent-strong: #d9f8ff;
+        --danger: #ff9ec8;
+        --shadow: 0 20px 60px rgba(0, 0, 0, 0.36);
         --radius-xl: 28px;
         --radius-lg: 20px;
         --radius-md: 16px;
@@ -44,31 +44,25 @@
         margin: 0;
         overflow: hidden;
         background:
-          radial-gradient(circle at top, rgba(72, 118, 255, 0.16), transparent 34%),
-          radial-gradient(circle at bottom, rgba(77, 214, 255, 0.12), transparent 30%),
-          linear-gradient(180deg, #090d19 0%, var(--bg) 100%);
+          radial-gradient(circle at top, rgba(76, 118, 255, 0.16), transparent 34%),
+          radial-gradient(circle at bottom, rgba(73, 224, 255, 0.1), transparent 28%),
+          linear-gradient(180deg, #0a1020 0%, var(--bg) 100%);
         color: var(--text);
       }
 
       body::before {
-        content: "";
+        content: '';
         position: fixed;
         inset: 0;
         pointer-events: none;
         background:
-          radial-gradient(circle at center, rgba(255, 255, 255, 0.05), transparent 50%),
-          linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 25%, rgba(255, 255, 255, 0.02));
+          radial-gradient(circle at center, rgba(255, 255, 255, 0.04), transparent 52%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 24%, rgba(255, 255, 255, 0.02));
       }
 
       button,
-      input,
-      select {
+      input {
         font: inherit;
-      }
-
-      button,
-      input,
-      select {
         border: 0;
         outline: none;
       }
@@ -78,14 +72,13 @@
       }
 
       button:disabled,
-      input:disabled,
-      select:disabled {
+      input:disabled {
         cursor: not-allowed;
         opacity: 0.45;
       }
 
-      #app,
-      #scene {
+      #scene,
+      #app {
         position: fixed;
         inset: 0;
       }
@@ -94,38 +87,60 @@
         display: block;
       }
 
-      .hud {
-        position: fixed;
-        inset: 0;
+      .overlay {
+        pointer-events: none;
         padding:
           max(16px, env(safe-area-inset-top))
           max(16px, env(safe-area-inset-right))
           max(16px, env(safe-area-inset-bottom))
           max(16px, env(safe-area-inset-left));
+      }
+
+      .overlay::after {
+        content: '';
+        position: absolute;
+        inset: 0;
         pointer-events: none;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 28%, rgba(255, 255, 255, 0.02));
+        opacity: 1;
+        transition: opacity 220ms ease;
       }
 
-      .hero,
-      .cluster,
-      .panel,
+      .overlay.is-ar::after {
+        opacity: 0.15;
+      }
+
+      .glass,
+      .dock,
       .toast,
-      .bubble-chip {
-        backdrop-filter: blur(18px) saturate(1.12);
-        -webkit-backdrop-filter: blur(18px) saturate(1.12);
+      .chip {
+        backdrop-filter: blur(18px) saturate(1.14);
+        -webkit-backdrop-filter: blur(18px) saturate(1.14);
       }
 
-      .hero {
-        pointer-events: auto;
-        max-width: min(660px, calc(100vw - 32px));
+      .intro {
+        position: absolute;
+        top: max(16px, env(safe-area-inset-top));
+        left: max(16px, env(safe-area-inset-left));
+        width: min(560px, calc(100vw - 32px));
         display: grid;
-        gap: 10px;
+        gap: 12px;
+        pointer-events: auto;
+        transition: opacity 240ms ease, transform 240ms ease;
+      }
+
+      .overlay.is-ar .intro {
+        opacity: 0;
+        transform: translateY(-16px);
+        pointer-events: none;
       }
 
       .eyebrow,
       .micro,
-      .slider-meta,
-      .empty-state,
-      .status-line {
+      .status,
+      .hint,
+      .empty,
+      .step {
         text-transform: uppercase;
         letter-spacing: 0.08em;
         font-size: 0.74rem;
@@ -138,84 +153,59 @@
         margin: 0;
       }
 
-      .hero h1 {
-        font-size: clamp(2.6rem, 9vw, 5.6rem);
-        line-height: 0.92;
-        max-width: 10ch;
+      .intro h1 {
+        font-size: clamp(2.8rem, 10vw, 5.8rem);
+        line-height: 0.9;
+        max-width: 9ch;
       }
 
-      .hero p {
+      .intro p {
         max-width: 56ch;
-        color: rgba(237, 245, 255, 0.82);
+        color: rgba(237, 245, 255, 0.84);
       }
 
-      .cluster {
-        position: absolute;
-        right: max(16px, env(safe-area-inset-right));
-        top: max(16px, env(safe-area-inset-top));
+      .intro-actions,
+      .panel-actions,
+      .action-grid,
+      .asset-list,
+      .bubble-list {
         display: grid;
         gap: 10px;
-        justify-items: end;
-        pointer-events: auto;
       }
 
-      .permission-btn,
-      .toggle-btn,
-      .action-btn,
-      .sound-toggle,
-      .mini-btn {
-        border-radius: var(--radius-pill);
-        color: var(--text);
-        border: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.08);
-        transition: transform 180ms ease, background 180ms ease, border-color 180ms ease, opacity 180ms ease;
-      }
-
-      .permission-btn:active,
-      .toggle-btn:active,
-      .action-btn:active,
-      .sound-toggle:active,
-      .mini-btn:active {
-        transform: scale(0.98);
-      }
-
-      .permission-btn,
-      .toggle-btn {
-        min-height: 46px;
-        padding: 0 16px;
-        box-shadow: var(--shadow);
-      }
-
-      .panel {
+      .panel-shell {
         position: absolute;
         left: max(16px, env(safe-area-inset-left));
         right: max(16px, env(safe-area-inset-right));
         bottom: calc(16px + env(safe-area-inset-bottom));
-        width: min(460px, calc(100vw - 32px));
+        width: min(440px, calc(100vw - 32px));
         max-width: 100%;
         pointer-events: auto;
-        display: grid;
-        gap: 14px;
-        padding: 18px;
-        border-radius: var(--radius-xl);
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04)),
-          var(--bg-panel);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        box-shadow: var(--shadow);
-        transform: translateY(0);
-        opacity: 1;
-        transition: transform 240ms ease, opacity 240ms ease;
+        transition: opacity 240ms ease, transform 240ms ease;
       }
 
-      .panel.is-collapsed {
-        transform: translateY(calc(100% - 74px));
+      .panel-shell.is-faded {
+        opacity: 0.06;
+        transform: translateY(10px);
+        pointer-events: none;
+      }
+
+      .panel {
+        display: grid;
+        gap: 14px;
+        padding: 16px;
+        border-radius: var(--radius-xl);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.05)),
+          var(--panel-strong);
+        box-shadow: var(--shadow);
       }
 
       .panel-head,
       .row,
-      .bubble-chip__head,
-      .bubble-chip__meta {
+      .bubble-meta,
+      .asset-meta {
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -224,19 +214,6 @@
 
       .panel-head {
         align-items: flex-start;
-      }
-
-      .panel-title {
-        display: grid;
-        gap: 6px;
-      }
-
-      .panel-title h2 {
-        font-size: clamp(1.4rem, 5vw, 2rem);
-      }
-
-      .status-line {
-        color: rgba(150, 235, 255, 0.9);
       }
 
       .section {
@@ -248,52 +225,68 @@
         background: rgba(255, 255, 255, 0.04);
       }
 
-      .section p,
-      .bubble-chip__sub,
-      .hint {
-        color: rgba(237, 245, 255, 0.78);
+      .panel p,
+      .asset-sub,
+      .bubble-sub {
+        color: rgba(237, 245, 255, 0.8);
         font-size: 0.92rem;
       }
 
-      .action-row,
-      .selected-list,
-      .bubble-list {
-        display: grid;
-        gap: 10px;
+      .action-btn,
+      .primary-btn,
+      .secondary-btn,
+      .asset-toggle,
+      .dock,
+      .mini-btn,
+      .icon-btn {
+        color: var(--text);
+        border-radius: var(--radius-pill);
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.08);
+        transition: transform 160ms ease, background 160ms ease, border-color 160ms ease, opacity 160ms ease;
       }
 
-      .selected-list {
-        max-height: 160px;
-        overflow: auto;
-        padding-right: 4px;
+      .action-btn:active,
+      .primary-btn:active,
+      .secondary-btn:active,
+      .asset-toggle:active,
+      .dock:active,
+      .mini-btn:active,
+      .icon-btn:active {
+        transform: scale(0.98);
       }
 
-      .sound-toggle {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        width: 100%;
+      .primary-btn,
+      .secondary-btn,
+      .dock,
+      .action-btn,
+      .mini-btn {
         min-height: 48px;
-        padding: 12px 14px;
-        text-align: left;
+        padding: 0 16px;
       }
 
-      .sound-toggle.is-active {
-        background: rgba(150, 235, 255, 0.16);
+      .primary-btn {
+        color: #07131c;
+        font-weight: 700;
+        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+      }
+
+      .secondary-btn {
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .action-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .action-btn.ghost {
+        background: rgba(140, 231, 255, 0.14);
         border-color: var(--line-strong);
       }
 
-      .sound-toggle__text {
-        min-width: 0;
-      }
-
-      .sound-toggle__name,
-      .bubble-chip__title {
-        font-weight: 600;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+      .action-btn.danger {
+        background: rgba(255, 158, 200, 0.12);
+        border-color: rgba(255, 158, 200, 0.24);
       }
 
       .slider-wrap {
@@ -301,90 +294,140 @@
         gap: 8px;
       }
 
-      input[type="range"] {
+      input[type='range'] {
         width: 100%;
         accent-color: var(--accent);
       }
 
-      .action-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 10px;
-      }
-
-      .action-btn,
-      .mini-btn {
-        min-height: 48px;
-        padding: 0 14px;
-      }
-
-      .action-btn.primary {
-        color: #08131e;
-        font-weight: 700;
-        background: linear-gradient(135deg, var(--accent) 0%, #ccf7ff 100%);
-      }
-
-      .action-btn.ghost {
-        background: rgba(150, 235, 255, 0.14);
-        border-color: var(--line-strong);
-      }
-
-      .action-btn.danger {
-        background: rgba(255, 155, 203, 0.12);
-        border-color: rgba(255, 155, 203, 0.24);
-      }
-
+      .asset-list,
       .bubble-list {
-        max-height: min(28vh, 220px);
+        max-height: 24vh;
         overflow: auto;
         padding-right: 4px;
       }
 
-      .bubble-chip {
+      .asset-toggle,
+      .bubble-card {
         display: grid;
-        gap: 10px;
+        gap: 8px;
+        width: 100%;
         padding: 12px 14px;
+        text-align: left;
+      }
+
+      .asset-toggle.is-active {
+        background: rgba(140, 231, 255, 0.15);
+        border-color: var(--line-strong);
+      }
+
+      .asset-name,
+      .bubble-title {
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .bubble-card {
         border-radius: var(--radius-md);
-        background: rgba(255, 255, 255, 0.04);
         border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.04);
       }
 
-      .bubble-chip.is-stuck {
-        border-color: rgba(159, 156, 255, 0.38);
-        background: rgba(159, 156, 255, 0.12);
+      .bubble-card.is-silent {
+        border-color: rgba(255, 201, 115, 0.24);
+        background: rgba(255, 201, 115, 0.08);
       }
 
-      .bubble-chip__sub {
+      .bubble-card.is-stuck {
+        border-color: rgba(167, 159, 255, 0.28);
+        background: rgba(167, 159, 255, 0.12);
+      }
+
+      .bubble-sub {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
       }
 
-      .bubble-chip__dot {
+      .tag {
         display: inline-flex;
         align-items: center;
         gap: 6px;
       }
 
-      .bubble-chip__dot::before {
-        content: "";
+      .tag::before {
+        content: '';
         width: 6px;
         height: 6px;
         border-radius: 50%;
         background: currentColor;
-        opacity: 0.9;
       }
 
-      .bubble-chip__dot.stuck {
-        color: #c4c0ff;
+      .tag.live {
+        color: #95efc8;
       }
 
-      .bubble-chip__dot.free {
-        color: #8ef2c4;
+      .tag.silent {
+        color: #ffc973;
       }
 
-      .hint {
-        font-size: 0.84rem;
+      .tag.stuck {
+        color: #c9c2ff;
+      }
+
+      .tag.free {
+        color: #98e8ff;
+      }
+
+      .dock {
+        position: absolute;
+        right: max(16px, env(safe-area-inset-right));
+        bottom: calc(16px + env(safe-area-inset-bottom));
+        pointer-events: auto;
+        box-shadow: var(--shadow);
+      }
+
+      .overlay.is-ar .dock {
+        right: max(16px, env(safe-area-inset-right));
+      }
+
+      .status-stack {
+        position: absolute;
+        right: max(16px, env(safe-area-inset-right));
+        top: max(16px, env(safe-area-inset-top));
+        display: grid;
+        gap: 10px;
+        justify-items: end;
+        pointer-events: auto;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 40px;
+        padding: 0 14px;
+        border-radius: var(--radius-pill);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .chip::before {
+        content: '';
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .chip.active {
+        color: var(--accent);
+      }
+
+      .chip.idle {
+        color: rgba(237, 245, 255, 0.72);
       }
 
       .toast {
@@ -396,11 +439,10 @@
         padding: 12px 16px;
         border-radius: var(--radius-pill);
         border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(11, 15, 29, 0.84);
-        color: var(--text);
-        pointer-events: none;
+        background: rgba(9, 12, 24, 0.88);
         opacity: 0;
         transition: opacity 180ms ease;
+        pointer-events: none;
       }
 
       .toast.is-visible {
@@ -412,23 +454,22 @@
       }
 
       @media (max-width: 720px) {
-        .cluster {
-          left: max(16px, env(safe-area-inset-left));
-          right: auto;
-          justify-items: start;
+        .intro {
+          width: min(420px, calc(100vw - 32px));
         }
 
-        .hero {
-          max-width: min(420px, calc(100vw - 32px));
-          padding-top: 62px;
-        }
-
-        .panel {
+        .panel-shell {
           width: calc(100vw - 32px);
         }
 
         .action-grid {
           grid-template-columns: 1fr;
+        }
+
+        .status-stack {
+          left: max(16px, env(safe-area-inset-left));
+          right: auto;
+          justify-items: start;
         }
       }
     </style>
@@ -436,76 +477,84 @@
   <body>
     <div id="scene" aria-hidden="true"></div>
 
-    <div id="app" class="hud">
-      <header class="hero">
-        <div class="eyebrow">Spatial audio instrument</div>
+    <div id="app" class="overlay">
+      <header id="intro" class="intro">
+        <div class="eyebrow">Fullscreen AR spatial instrument</div>
         <h1>EchoBubbleLoop</h1>
         <p>
-          Import a personal bubble set, generate a glowing ring of sound around you, then sculpt the mix by moving and
-          tapping bubbles live.
+          Import your sounds, enter AR, generate a ring around yourself, then touch each bubble to wake its audio and
+          sculpt the soundscape in motion.
         </p>
+        <div class="intro-actions">
+          <button id="enterArButton" class="primary-btn" type="button">Enter AR</button>
+          <button id="importButton" class="secondary-btn" type="button">Import sounds</button>
+        </div>
       </header>
 
-      <div class="cluster">
-        <button id="permissionButton" class="permission-btn" type="button">Enable motion + audio</button>
-        <button id="togglePanelButton" class="toggle-btn" type="button" aria-expanded="true">Hide controls</button>
+      <div class="status-stack">
+        <div id="sessionChip" class="chip idle">AR not started</div>
+        <div id="focusChip" class="chip idle">Touch bubbles to wake sound</div>
       </div>
 
-      <section id="controlPanel" class="panel" aria-label="EchoBubbleLoop controls">
-        <div class="panel-head">
-          <div class="panel-title">
-            <div class="micro">Live scene</div>
-            <h2>Everything happens in one flow.</h2>
-            <div id="statusLine" class="status-line">Import sounds to begin.</div>
-          </div>
-        </div>
-
-        <div class="section">
-          <div class="row">
+      <div id="panelShell" class="panel-shell">
+        <section id="controlPanel" class="panel glass" aria-label="EchoBubbleLoop controls">
+          <div class="panel-head">
             <div>
-              <div class="micro">Bubble set</div>
-              <strong id="libraryCount">0 sounds saved</strong>
+              <div class="micro">Live controls</div>
+              <h2>One scene. One gesture flow.</h2>
+              <div id="statusLine" class="status">Import sounds, then enter AR.</div>
             </div>
-            <button id="importButton" class="mini-btn" type="button">Import</button>
+            <button id="exitArButton" class="mini-btn hidden" type="button">Exit AR</button>
           </div>
-          <p>No previews here—your sounds start only when a bubble exists in the scene.</p>
-          <div id="selectedList" class="selected-list"></div>
-          <div id="emptyLibrary" class="empty-state">Import mp3 or wav files to build your loop set.</div>
-        </div>
 
-        <div class="section">
-          <div class="row">
-            <div>
-              <div class="micro">Scene generation</div>
-              <strong id="selectionSummary">Select at least one sound</strong>
+          <div class="section">
+            <div class="row">
+              <div>
+                <div class="micro">Bubble set</div>
+                <strong id="libraryCount">0 sounds</strong>
+              </div>
+              <button id="importInlineButton" class="mini-btn" type="button">Import</button>
             </div>
-            <div id="bubbleSliderMeta" class="slider-meta">4 bubbles</div>
+            <p>No preview mode. Imported sounds stay silent until they become bubbles in the scene.</p>
+            <div id="assetList" class="asset-list"></div>
+            <div id="emptyLibrary" class="empty">Import mp3 or wav files to build the bubble set.</div>
           </div>
-          <div class="slider-wrap">
-            <label class="hint" for="bubbleCount">Number of bubbles</label>
-            <input id="bubbleCount" type="range" min="1" max="10" step="1" value="4" />
-          </div>
-          <div class="action-grid">
-            <button id="generateButton" class="action-btn primary" type="button">Generate</button>
-            <button id="addForwardButton" class="action-btn ghost" type="button">Add bubble ahead</button>
-            <button id="undoButton" class="action-btn" type="button">Undo</button>
-            <button id="clearButton" class="action-btn danger" type="button">Clear</button>
-          </div>
-          <div class="hint">Tap a bubble to collé / décoller it. Stuck bubbles follow your forward direction at 0.5 m.</div>
-        </div>
 
-        <div class="section">
-          <div class="row">
-            <div>
-              <div class="micro">Active bubbles</div>
-              <strong id="activeCount">0 live</strong>
+          <div class="section">
+            <div class="row">
+              <div>
+                <div class="micro">Scene generation</div>
+                <strong id="selectionSummary">Select at least one sound</strong>
+              </div>
+              <div id="bubbleSliderMeta" class="step">4 bubbles</div>
             </div>
+            <div class="slider-wrap">
+              <label class="hint" for="bubbleCount">Number of bubbles</label>
+              <input id="bubbleCount" type="range" min="1" max="10" step="1" value="4" />
+            </div>
+            <div class="action-grid">
+              <button id="generateButton" class="action-btn" type="button">Generate</button>
+              <button id="addForwardButton" class="action-btn ghost" type="button">Add ahead</button>
+              <button id="undoButton" class="action-btn" type="button">Undo</button>
+              <button id="clearButton" class="action-btn danger" type="button">Clear</button>
+            </div>
+            <div class="hint">Tap a bubble in AR to wake its audio. Every tap also toggles collé / décoller.</div>
           </div>
-          <div id="bubbleList" class="bubble-list"></div>
-          <div id="emptyScene" class="empty-state">Generate a scene or add a forward bubble to start the soundscape.</div>
-        </div>
-      </section>
 
+          <div class="section">
+            <div class="row">
+              <div>
+                <div class="micro">Active bubbles</div>
+                <strong id="activeCount">0 live</strong>
+              </div>
+            </div>
+            <div id="bubbleList" class="bubble-list"></div>
+            <div id="emptyScene" class="empty">Generate in AR to surround yourself with bubbles.</div>
+          </div>
+        </section>
+      </div>
+
+      <button id="dockButton" class="dock hidden" type="button">Controls</button>
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
       <input id="fileInput" class="hidden" type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/wave,audio/x-wav" multiple />
     </div>

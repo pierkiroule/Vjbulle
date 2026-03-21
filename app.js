@@ -2,24 +2,28 @@ import * as THREE from 'three';
 
 const STORAGE_KEY = 'echo-bubble-loop::bubble-set';
 const MAX_BUBBLES = 10;
+const MAX_LIBRARY_ITEMS = 24;
 const RING_RADIUS = 1.5;
 const STICK_DISTANCE = 0.5;
 const FORWARD_PLACE_DISTANCE = 0.4;
-const FLOAT_SPEED = 0.85;
+const FLOAT_SPEED = 0.75;
 const FLOAT_HEIGHT = 0.08;
 const FADE_SECONDS = 0.3;
 const BOUNCE_SECONDS = 0.7;
 const CAMERA_HEIGHT = 1.55;
+const HUD_FADE_MS = 2600;
 const LOOK_SENSITIVITY = 0.0032;
 const PAN_LIMIT = Math.PI * 0.32;
 
 const scratch = {
   forward: new THREE.Vector3(0, 0, -1),
+  up: new THREE.Vector3(0, 1, 0),
   cameraWorld: new THREE.Vector3(),
   bubbleWorld: new THREE.Vector3(),
   cameraQuaternion: new THREE.Quaternion(),
-  raycaster: new THREE.Raycaster(),
+  matrix: new THREE.Matrix4(),
   pointer: new THREE.Vector2(),
+  raycaster: new THREE.Raycaster(),
 };
 
 const state = {
@@ -27,39 +31,42 @@ const state = {
   selectedIds: new Set(),
   bubbles: [],
   bubbleCount: 4,
-  audioContext: null,
-  masterGain: null,
   renderer: null,
   scene: null,
   camera: null,
   clock: new THREE.Clock(),
-  orientationPermissionGranted: false,
-  orientationActive: false,
-  yaw: 0,
-  pitch: 0,
+  audioContext: null,
+  masterGain: null,
+  xrSession: null,
+  hudFaded: false,
+  hudTimer: 0,
   dragging: false,
   dragPointerId: null,
   dragMoved: false,
   lastPointer: { x: 0, y: 0 },
-  deviceEuler: new THREE.Euler(0, 0, 0, 'YXZ'),
-  deviceQuaternion: new THREE.Quaternion(),
-  deviceAlphaOffset: 0,
-  hasAlphaOffset: false,
+  yaw: 0,
+  pitch: 0,
   bubbleSerial: 0,
   toastTimer: 0,
-  resizeObserver: null,
 };
 
 const dom = {
+  overlay: document.querySelector('#app'),
+  intro: document.querySelector('#intro'),
   scene: document.querySelector('#scene'),
-  fileInput: document.querySelector('#fileInput'),
+  enterArButton: document.querySelector('#enterArButton'),
+  exitArButton: document.querySelector('#exitArButton'),
   importButton: document.querySelector('#importButton'),
-  permissionButton: document.querySelector('#permissionButton'),
-  togglePanelButton: document.querySelector('#togglePanelButton'),
+  importInlineButton: document.querySelector('#importInlineButton'),
+  fileInput: document.querySelector('#fileInput'),
+  sessionChip: document.querySelector('#sessionChip'),
+  focusChip: document.querySelector('#focusChip'),
+  panelShell: document.querySelector('#panelShell'),
   controlPanel: document.querySelector('#controlPanel'),
+  dockButton: document.querySelector('#dockButton'),
   statusLine: document.querySelector('#statusLine'),
   libraryCount: document.querySelector('#libraryCount'),
-  selectedList: document.querySelector('#selectedList'),
+  assetList: document.querySelector('#assetList'),
   emptyLibrary: document.querySelector('#emptyLibrary'),
   selectionSummary: document.querySelector('#selectionSummary'),
   bubbleSlider: document.querySelector('#bubbleCount'),
@@ -87,16 +94,17 @@ function updateStatus(message) {
   dom.statusLine.textContent = message;
 }
 
-function clampBubbleCount(value) {
-  return Math.min(MAX_BUBBLES, Math.max(1, Number(value) || 1));
+function escapeHtml(value) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
-function updateSelectionSummary() {
-  const count = state.selectedIds.size;
-  dom.selectionSummary.textContent = count
-    ? `${count} sound${count > 1 ? 's' : ''} selected for generation`
-    : 'Select at least one sound';
-  dom.bubbleSliderMeta.textContent = `${state.bubbleCount} bubble${state.bubbleCount > 1 ? 's' : ''}`;
+function clampBubbleCount(value) {
+  return Math.min(MAX_BUBBLES, Math.max(1, Number(value) || 1));
 }
 
 function saveBubbleSet() {
@@ -115,7 +123,7 @@ function loadBubbleSet() {
     }
     state.bubbleSet = parsed
       .filter((item) => item && typeof item.id === 'string' && typeof item.name === 'string' && typeof item.url === 'string')
-      .slice(0, 24);
+      .slice(0, MAX_LIBRARY_ITEMS);
     state.selectedIds = new Set(state.bubbleSet.slice(0, Math.min(4, state.bubbleSet.length)).map((item) => item.id));
   } catch (error) {
     console.warn('Failed to restore bubble set.', error);
@@ -152,15 +160,15 @@ async function importFiles(files) {
   }
 
   if (!imported.length) {
-    showToast('Only mp3 and wav files can be imported here.');
+    showToast('Only mp3 and wav files can be imported.');
     return;
   }
 
-  state.bubbleSet = [...state.bubbleSet, ...imported].slice(-24);
+  state.bubbleSet = [...state.bubbleSet, ...imported].slice(-MAX_LIBRARY_ITEMS);
   const nextSelected = new Set(state.selectedIds);
-  imported.forEach((item) => {
+  imported.forEach((asset) => {
     if (nextSelected.size < MAX_BUBBLES) {
-      nextSelected.add(item.id);
+      nextSelected.add(asset.id);
     }
   });
   state.selectedIds = nextSelected;
@@ -169,53 +177,114 @@ async function importFiles(files) {
     saveBubbleSet();
   } catch (error) {
     console.error(error);
-    showToast('Storage is full. Try importing fewer or shorter files.');
-    state.bubbleSet = state.bubbleSet.filter((item) => !imported.some((added) => added.id === item.id));
+    state.bubbleSet = state.bubbleSet.filter((asset) => !imported.some((item) => item.id === asset.id));
     imported.forEach((item) => nextSelected.delete(item.id));
     state.selectedIds = nextSelected;
+    showToast('Storage is full. Import fewer or shorter files.');
+    renderBubbleSet();
+    return;
   }
 
   renderBubbleSet();
-  updateStatus('Bubble set updated. Generate to hear the loop ring.');
+  updateStatus('Bubble set ready. Enter AR to generate your ring.');
   showToast(`${imported.length} sound${imported.length > 1 ? 's' : ''} imported.`);
 }
 
 function renderBubbleSet() {
-  dom.selectedList.innerHTML = '';
-  dom.libraryCount.textContent = `${state.bubbleSet.length} sound${state.bubbleSet.length === 1 ? '' : 's'} saved`;
+  dom.assetList.innerHTML = '';
+  dom.libraryCount.textContent = `${state.bubbleSet.length} sound${state.bubbleSet.length === 1 ? '' : 's'}`;
   dom.emptyLibrary.classList.toggle('hidden', state.bubbleSet.length > 0);
 
   for (const asset of state.bubbleSet) {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = `sound-toggle${state.selectedIds.has(asset.id) ? ' is-active' : ''}`;
+    button.className = `asset-toggle${state.selectedIds.has(asset.id) ? ' is-active' : ''}`;
     button.dataset.assetId = asset.id;
     button.innerHTML = `
-      <span class="sound-toggle__text">
-        <div class="sound-toggle__name">${escapeHtml(asset.name)}</div>
-      </span>
-      <span>${state.selectedIds.has(asset.id) ? 'Selected' : 'Select'}</span>
+      <div class="asset-meta">
+        <div class="asset-name">${escapeHtml(asset.name)}</div>
+        <span>${state.selectedIds.has(asset.id) ? 'Selected' : 'Select'}</span>
+      </div>
+      <div class="asset-sub">Ready for circular generation and forward placement.</div>
     `;
-    dom.selectedList.append(button);
+    dom.assetList.append(button);
   }
 
   updateSelectionSummary();
 }
 
-function escapeHtml(value) {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+function updateSelectionSummary() {
+  const selectedCount = state.selectedIds.size;
+  dom.selectionSummary.textContent = selectedCount
+    ? `${selectedCount} sound${selectedCount > 1 ? 's' : ''} selected`
+    : 'Select at least one sound';
+  dom.bubbleSliderMeta.textContent = `${state.bubbleCount} bubble${state.bubbleCount > 1 ? 's' : ''}`;
 }
 
-async function ensureAudio() {
+function renderActiveBubbles() {
+  dom.bubbleList.innerHTML = '';
+  dom.activeCount.textContent = `${state.bubbles.length} live`;
+  dom.emptyScene.classList.toggle('hidden', state.bubbles.length > 0);
+
+  for (const bubble of state.bubbles) {
+    const card = document.createElement('article');
+    card.className = `bubble-card${bubble.stuck ? ' is-stuck' : ''}${bubble.isUnlocked ? '' : ' is-silent'}`;
+    card.innerHTML = `
+      <div class="bubble-meta">
+        <div class="bubble-title">${escapeHtml(bubble.name)}</div>
+        <button class="mini-btn" type="button" data-focus-bubble="${bubble.id}">${bubble.isUnlocked ? 'Live' : 'Touch to wake'}</button>
+      </div>
+      <div class="bubble-sub">
+        <span class="tag ${bubble.isUnlocked ? 'live' : 'silent'}">${bubble.isUnlocked ? 'Audio live' : 'Silent'}</span>
+        <span class="tag ${bubble.stuck ? 'stuck' : 'free'}">${bubble.stuck ? 'Collé' : 'Décollé'}</span>
+        <span>Range ${bubble.range.toFixed(1)} m</span>
+      </div>
+    `;
+    dom.bubbleList.append(card);
+  }
+}
+
+function markSessionChip(active, text) {
+  dom.sessionChip.classList.toggle('active', active);
+  dom.sessionChip.classList.toggle('idle', !active);
+  dom.sessionChip.textContent = text;
+}
+
+function markFocusChip(active, text) {
+  dom.focusChip.classList.toggle('active', active);
+  dom.focusChip.classList.toggle('idle', !active);
+  dom.focusChip.textContent = text;
+}
+
+function wakeHud() {
+  state.hudFaded = false;
+  dom.panelShell.classList.remove('is-faded');
+  dom.dockButton.classList.remove('hidden');
+  window.clearTimeout(state.hudTimer);
+  if (state.xrSession) {
+    state.hudTimer = window.setTimeout(() => {
+      state.hudFaded = true;
+      dom.panelShell.classList.add('is-faded');
+    }, HUD_FADE_MS);
+  }
+}
+
+function closeHudSoon() {
+  if (!state.xrSession) {
+    return;
+  }
+  window.clearTimeout(state.hudTimer);
+  state.hudTimer = window.setTimeout(() => {
+    state.hudFaded = true;
+    dom.panelShell.classList.add('is-faded');
+  }, HUD_FADE_MS);
+}
+
+async function ensureAudioContext() {
   if (!state.audioContext) {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextClass) {
-      throw new Error('Web Audio API is unavailable in this browser.');
+      throw new Error('Web Audio API is unavailable.');
     }
     state.audioContext = new AudioContextClass({ latencyHint: 'interactive' });
     state.masterGain = state.audioContext.createGain();
@@ -230,46 +299,60 @@ async function ensureAudio() {
 
 function buildBubbleProfile(index, total) {
   const normalized = total <= 1 ? 0.5 : index / (total - 1);
-  const visualRadius = THREE.MathUtils.lerp(0.15, 0.3, normalized);
-  const range = THREE.MathUtils.lerp(1.8, 3.8, normalized);
-  const gainMax = THREE.MathUtils.lerp(0.25, 0.78, normalized);
-  return { visualRadius, range, gainMax };
+  return {
+    visualRadius: THREE.MathUtils.lerp(0.16, 0.3, normalized),
+    range: THREE.MathUtils.lerp(1.9, 3.8, normalized),
+    gainMax: THREE.MathUtils.lerp(0.25, 0.82, normalized),
+  };
 }
 
-function createBubbleVisual(radius) {
+function createBubbleVisual(radius, isUnlocked) {
   const group = new THREE.Group();
-  const glow = new THREE.Mesh(
-    new THREE.SphereGeometry(radius, 36, 36),
+
+  const halo = new THREE.Mesh(
+    new THREE.SphereGeometry(radius * 1.38, 28, 28),
+    new THREE.MeshBasicMaterial({ color: 0x74dbff, transparent: true, opacity: 0.08 }),
+  );
+
+  const shell = new THREE.Mesh(
+    new THREE.SphereGeometry(radius, 34, 34),
     new THREE.MeshPhysicalMaterial({
-      color: 0x88dcff,
+      color: 0x8be4ff,
       transparent: true,
-      opacity: 0.32,
-      roughness: 0.18,
+      opacity: 0.34,
+      roughness: 0.14,
       metalness: 0.02,
       transmission: 0.08,
       ior: 1.12,
-      thickness: 0.3,
-      emissive: 0x4fc4ff,
-      emissiveIntensity: 0.9,
+      thickness: 0.28,
+      emissive: isUnlocked ? 0x4fd5ff : 0x3b5265,
+      emissiveIntensity: isUnlocked ? 1.05 : 0.4,
     }),
   );
 
   const core = new THREE.Mesh(
-    new THREE.SphereGeometry(radius * 0.48, 24, 24),
-    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 }),
+    new THREE.SphereGeometry(radius * 0.46, 24, 24),
+    new THREE.MeshBasicMaterial({ color: isUnlocked ? 0xf8fdff : 0x8fa7bd, transparent: true, opacity: 0.82 }),
   );
 
-  const halo = new THREE.Mesh(
-    new THREE.SphereGeometry(radius * 1.36, 28, 28),
-    new THREE.MeshBasicMaterial({ color: 0x71d7ff, transparent: true, opacity: 0.07 }),
-  );
-
-  group.add(halo, glow, core);
-  group.userData.hitMesh = glow;
+  group.add(halo, shell, core);
+  group.userData.shell = shell;
+  group.userData.core = core;
   return group;
 }
 
-function createBubbleAudio(asset, bubble) {
+function setBubbleVisualState(bubble) {
+  const shell = bubble.root.userData.shell;
+  const core = bubble.root.userData.core;
+  if (!shell || !core) {
+    return;
+  }
+  shell.material.emissive.setHex(bubble.isUnlocked ? 0x4fd5ff : 0x3b5265);
+  shell.material.emissiveIntensity = bubble.isUnlocked ? 1.05 : 0.4;
+  core.material.color.setHex(bubble.isUnlocked ? 0xf8fdff : 0x8fa7bd);
+}
+
+function createBubbleAudio(asset) {
   const context = state.audioContext;
   const element = document.createElement('audio');
   element.src = asset.url;
@@ -295,16 +378,21 @@ function createBubbleAudio(asset, bubble) {
   gain.connect(panner);
   panner.connect(state.masterGain);
 
-  bubble.audio = { element, source, gain, panner };
+  return { element, source, gain, panner, hasStarted: false };
+}
 
-  element.play().then(() => {
-    const now = context.currentTime;
-    gain.gain.cancelScheduledValues(now);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.linearRampToValueAtTime(0.0001, now + 0.02);
-  }).catch((error) => {
-    console.warn('Playback could not start yet.', error);
-    showToast('Tap Enable motion + audio to unlock playback.');
+function disposeBubbleVisual(root) {
+  root.traverse((object) => {
+    if (object.geometry) {
+      object.geometry.dispose();
+    }
+    if (object.material) {
+      if (Array.isArray(object.material)) {
+        object.material.forEach((material) => material.dispose());
+      } else {
+        object.material.dispose();
+      }
+    }
   });
 }
 
@@ -325,30 +413,33 @@ function disposeBubbleAudio(bubble) {
   bubble.audio = null;
 }
 
-function disposeBubbleVisual(root) {
-  root.traverse((object) => {
-    if (object.geometry) {
-      object.geometry.dispose();
-    }
-    if (object.material) {
-      if (Array.isArray(object.material)) {
-        object.material.forEach((material) => material.dispose());
-      } else {
-        object.material.dispose();
-      }
-    }
-  });
+function getActiveCamera() {
+  return state.xrSession ? state.renderer.xr.getCamera(state.camera) : state.camera;
+}
+
+function getCameraWorldPosition() {
+  const activeCamera = getActiveCamera();
+  activeCamera.getWorldPosition(scratch.cameraWorld);
+  return scratch.cameraWorld.clone();
+}
+
+function getCameraWorldQuaternion() {
+  const activeCamera = getActiveCamera();
+  activeCamera.getWorldQuaternion(scratch.cameraQuaternion);
+  return scratch.cameraQuaternion.clone();
 }
 
 function getForwardPosition(distance) {
-  scratch.forward.set(0, 0, -1).applyQuaternion(state.camera.quaternion).normalize();
-  return state.camera.position.clone().add(scratch.forward.multiplyScalar(distance));
+  const cameraPosition = getCameraWorldPosition();
+  const cameraQuaternion = getCameraWorldQuaternion();
+  scratch.forward.set(0, 0, -1).applyQuaternion(cameraQuaternion).normalize();
+  return cameraPosition.add(scratch.forward.multiplyScalar(distance));
 }
 
 async function spawnBubble(asset, position, profile, options = {}) {
-  await ensureAudio();
+  await ensureAudioContext();
 
-  const root = createBubbleVisual(profile.visualRadius);
+  const root = createBubbleVisual(profile.visualRadius, false);
   root.position.copy(position);
   root.scale.setScalar(0.0001);
   state.scene.add(root);
@@ -361,23 +452,51 @@ async function spawnBubble(asset, position, profile, options = {}) {
     visualRadius: profile.visualRadius,
     range: profile.range,
     gainMax: profile.gainMax,
-    basePosition: root.position.clone(),
     floatOffset: Math.random() * Math.PI * 2,
     driftPhase: Math.random() * Math.PI * 2,
     createdAt: performance.now(),
     stuck: Boolean(options.stuck),
-    removed: false,
-    animatingOut: false,
     releasePosition: root.position.clone(),
-    audio: null,
+    isUnlocked: false,
+    animatingOut: false,
+    audio: createBubbleAudio(asset),
   };
 
   root.userData.bubbleId = bubble.id;
-  createBubbleAudio(asset, bubble);
-
   state.bubbles.push(bubble);
   renderActiveBubbles();
-  updateStatus('Scene is live. Move, look, and tap bubbles to reshape the loop.');
+  markFocusChip(false, 'Touch bubbles to wake sound');
+  updateStatus('Scene is live. Tap bubbles in AR to wake their audio.');
+  wakeHud();
+}
+
+async function unlockBubbleAudio(bubble) {
+  if (!bubble || bubble.isUnlocked || !bubble.audio) {
+    return;
+  }
+
+  await ensureAudioContext();
+  bubble.isUnlocked = true;
+  setBubbleVisualState(bubble);
+
+  if (!bubble.audio.hasStarted) {
+    try {
+      await bubble.audio.element.play();
+      bubble.audio.hasStarted = true;
+    } catch (error) {
+      bubble.isUnlocked = false;
+      setBubbleVisualState(bubble);
+      console.warn('Unable to start bubble audio.', error);
+      showToast('Audio wake failed. Tap the bubble again.');
+      return;
+    }
+  }
+
+  const now = state.audioContext.currentTime;
+  bubble.audio.gain.gain.cancelScheduledValues(now);
+  bubble.audio.gain.gain.setValueAtTime(0.0001, now);
+  bubble.audio.gain.gain.linearRampToValueAtTime(0.0001, now + FADE_SECONDS);
+  renderActiveBubbles();
 }
 
 function getSelectedAssets() {
@@ -385,35 +504,47 @@ function getSelectedAssets() {
 }
 
 async function generateScene() {
-  const assets = getSelectedAssets();
-  if (!assets.length) {
-    showToast('Select at least one imported sound first.');
+  if (!state.xrSession) {
+    showToast('Enter AR first for the fullscreen live scene.');
     return;
   }
 
-  await ensureAudio();
+  const assets = getSelectedAssets();
+  if (!assets.length) {
+    showToast('Select at least one sound first.');
+    return;
+  }
+
+  await ensureAudioContext();
   await clearBubbles(false);
 
   const count = clampBubbleCount(state.bubbleCount);
+  const cameraPosition = getCameraWorldPosition();
+
   for (let i = 0; i < count; i += 1) {
     const angle = (i / count) * Math.PI * 2;
     const x = Math.cos(angle) * RING_RADIUS;
     const z = Math.sin(angle) * RING_RADIUS;
-    const position = new THREE.Vector3(x, 0, z);
-    const asset = assets[i % assets.length];
+    const position = new THREE.Vector3(cameraPosition.x + x, 0, cameraPosition.z + z);
     const profile = buildBubbleProfile(i, count);
-    await spawnBubble(asset, position, profile, { stuck: false });
+    await spawnBubble(assets[i % assets.length], position, profile, { stuck: false });
   }
 
-  showToast(`Generated ${count} bubble${count > 1 ? 's' : ''} in a circle around you.`);
+  showToast(`Generated ${count} silent bubbles around you. Touch them to wake the sound.`);
 }
 
 async function addBubbleAhead() {
-  const assets = getSelectedAssets();
-  if (!assets.length) {
-    showToast('Select at least one sound before placing a bubble ahead.');
+  if (!state.xrSession) {
+    showToast('Enter AR first to place a forward bubble.');
     return;
   }
+
+  const assets = getSelectedAssets();
+  if (!assets.length) {
+    showToast('Select at least one sound first.');
+    return;
+  }
+
   if (state.bubbles.length >= MAX_BUBBLES) {
     showToast('Maximum of 10 bubbles reached.');
     return;
@@ -423,13 +554,7 @@ async function addBubbleAhead() {
   const profile = buildBubbleProfile(state.bubbles.length, MAX_BUBBLES);
   const position = getForwardPosition(FORWARD_PLACE_DISTANCE);
   await spawnBubble(asset, position, profile, { stuck: true });
-  showToast('Bubble placed ahead and collé to your forward direction.');
-}
-
-function animateBubbleIn(bubble, elapsed) {
-  const t = Math.min(1, elapsed / BOUNCE_SECONDS);
-  const eased = easeOutBack(t);
-  bubble.root.scale.setScalar(Math.max(0.0001, eased));
+  showToast('Forward bubble added. Touch it in AR to wake its audio.');
 }
 
 function easeOutBack(t) {
@@ -438,24 +563,9 @@ function easeOutBack(t) {
   return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
 }
 
-function updateAudioBubble(bubble) {
-  if (!bubble.audio || !state.audioContext) {
-    return;
-  }
-
-  state.camera.getWorldPosition(scratch.cameraWorld);
-  bubble.root.getWorldPosition(scratch.bubbleWorld);
-
-  const distance = scratch.cameraWorld.distanceTo(scratch.bubbleWorld);
-  const gainValue = distance < bubble.range ? ((1 - distance / bubble.range) ** 2) * bubble.gainMax : 0;
-  const now = state.audioContext.currentTime;
-
-  bubble.audio.gain.gain.cancelScheduledValues(now);
-  bubble.audio.gain.gain.linearRampToValueAtTime(Math.max(0.0001, gainValue), now + 0.08);
-
-  bubble.audio.panner.positionX.value = scratch.bubbleWorld.x;
-  bubble.audio.panner.positionY.value = scratch.bubbleWorld.y + CAMERA_HEIGHT;
-  bubble.audio.panner.positionZ.value = scratch.bubbleWorld.z;
+function animateBubbleIn(bubble, ageSeconds) {
+  const t = Math.min(1, ageSeconds / BOUNCE_SECONDS);
+  bubble.root.scale.setScalar(Math.max(0.0001, easeOutBack(t)));
 }
 
 function updateListener() {
@@ -464,30 +574,58 @@ function updateListener() {
   }
 
   const listener = state.audioContext.listener;
-  state.camera.getWorldPosition(scratch.cameraWorld);
-  state.camera.getWorldQuaternion(scratch.cameraQuaternion);
+  const activeCamera = getActiveCamera();
+  activeCamera.getWorldPosition(scratch.cameraWorld);
+  activeCamera.getWorldQuaternion(scratch.cameraQuaternion);
   scratch.forward.set(0, 0, -1).applyQuaternion(scratch.cameraQuaternion).normalize();
 
   if (listener.positionX) {
     listener.positionX.value = scratch.cameraWorld.x;
-    listener.positionY.value = scratch.cameraWorld.y + CAMERA_HEIGHT;
+    listener.positionY.value = scratch.cameraWorld.y + (state.xrSession ? 0 : CAMERA_HEIGHT);
     listener.positionZ.value = scratch.cameraWorld.z;
     listener.forwardX.value = scratch.forward.x;
     listener.forwardY.value = scratch.forward.y;
     listener.forwardZ.value = scratch.forward.z;
-    listener.upX.value = 0;
-    listener.upY.value = 1;
-    listener.upZ.value = 0;
+    listener.upX.value = scratch.up.x;
+    listener.upY.value = scratch.up.y;
+    listener.upZ.value = scratch.up.z;
   } else {
-    listener.setPosition(scratch.cameraWorld.x, scratch.cameraWorld.y + CAMERA_HEIGHT, scratch.cameraWorld.z);
-    listener.setOrientation(scratch.forward.x, scratch.forward.y, scratch.forward.z, 0, 1, 0);
+    listener.setPosition(
+      scratch.cameraWorld.x,
+      scratch.cameraWorld.y + (state.xrSession ? 0 : CAMERA_HEIGHT),
+      scratch.cameraWorld.z,
+    );
+    listener.setOrientation(scratch.forward.x, scratch.forward.y, scratch.forward.z, scratch.up.x, scratch.up.y, scratch.up.z);
   }
+}
+
+function updateAudioBubble(bubble) {
+  if (!bubble.audio || !state.audioContext) {
+    return;
+  }
+
+  const activeCamera = getActiveCamera();
+  activeCamera.getWorldPosition(scratch.cameraWorld);
+  bubble.root.getWorldPosition(scratch.bubbleWorld);
+
+  const distance = scratch.cameraWorld.distanceTo(scratch.bubbleWorld);
+  const desiredGain = bubble.isUnlocked && distance < bubble.range
+    ? ((1 - distance / bubble.range) ** 2) * bubble.gainMax
+    : 0;
+
+  const now = state.audioContext.currentTime;
+  bubble.audio.gain.gain.cancelScheduledValues(now);
+  bubble.audio.gain.gain.linearRampToValueAtTime(Math.max(0.0001, desiredGain), now + 0.08);
+
+  bubble.audio.panner.positionX.value = scratch.bubbleWorld.x;
+  bubble.audio.panner.positionY.value = scratch.bubbleWorld.y + (state.xrSession ? 0 : CAMERA_HEIGHT);
+  bubble.audio.panner.positionZ.value = scratch.bubbleWorld.z;
 }
 
 function updateBubbles(time, delta) {
   for (const bubble of state.bubbles) {
-    const age = (time - bubble.createdAt) / 1000;
-    animateBubbleIn(bubble, age);
+    const ageSeconds = (time - bubble.createdAt) / 1000;
+    animateBubbleIn(bubble, ageSeconds);
 
     if (bubble.stuck) {
       const target = getForwardPosition(STICK_DISTANCE);
@@ -500,31 +638,8 @@ function updateBubbles(time, delta) {
       bubble.root.position.z += Math.sin(time * 0.0009 + bubble.driftPhase) * 0.012;
     }
 
-    bubble.root.rotation.y += delta * 0.22;
+    bubble.root.rotation.y += delta * 0.24;
     updateAudioBubble(bubble);
-  }
-}
-
-function renderActiveBubbles() {
-  dom.bubbleList.innerHTML = '';
-  dom.activeCount.textContent = `${state.bubbles.length} live`;
-  dom.emptyScene.classList.toggle('hidden', state.bubbles.length > 0);
-
-  for (const bubble of state.bubbles) {
-    const item = document.createElement('article');
-    item.className = `bubble-chip${bubble.stuck ? ' is-stuck' : ''}`;
-    item.innerHTML = `
-      <div class="bubble-chip__head">
-        <div class="bubble-chip__title">${escapeHtml(bubble.name)}</div>
-        <button class="mini-btn" type="button" data-toggle-bubble="${bubble.id}">${bubble.stuck ? 'Décoller' : 'Coller'}</button>
-      </div>
-      <div class="bubble-chip__sub">
-        <span class="bubble-chip__dot ${bubble.stuck ? 'stuck' : 'free'}">${bubble.stuck ? 'Stuck' : 'Free'}</span>
-        <span>Range ${bubble.range.toFixed(1)} m</span>
-        <span>Gain ${bubble.gainMax.toFixed(2)}</span>
-      </div>
-    `;
-    dom.bubbleList.append(item);
   }
 }
 
@@ -536,25 +651,39 @@ function setBubbleStuck(bubble, nextValue) {
   renderActiveBubbles();
 }
 
-function toggleBubbleById(id) {
+async function touchBubbleById(id) {
   const bubble = state.bubbles.find((item) => item.id === id);
   if (!bubble) {
     return;
   }
+
+  if (!bubble.isUnlocked) {
+    await unlockBubbleAudio(bubble);
+    if (!bubble.isUnlocked) {
+      return;
+    }
+    showToast('Bubble awakened. Its sound is now live.');
+    markFocusChip(true, 'Bubble audio is now waking on touch');
+  }
+
   setBubbleStuck(bubble, !bubble.stuck);
-  showToast(bubble.stuck ? 'Bubble collé to your forward movement.' : 'Bubble released into the scene.');
+  showToast(bubble.stuck ? 'Bubble collé to your movement.' : 'Bubble décollé into the world.');
+  wakeHud();
 }
 
 function fadeOutAndRemoveBubble(bubble) {
-  if (!bubble || bubble.animatingOut || !bubble.audio || !state.audioContext) {
+  if (!bubble || bubble.animatingOut) {
     return Promise.resolve();
   }
 
   bubble.animatingOut = true;
-  const now = state.audioContext.currentTime;
-  bubble.audio.gain.gain.cancelScheduledValues(now);
-  bubble.audio.gain.gain.setValueAtTime(bubble.audio.gain.gain.value || 0.0001, now);
-  bubble.audio.gain.gain.linearRampToValueAtTime(0.0001, now + FADE_SECONDS);
+
+  if (bubble.audio && state.audioContext) {
+    const now = state.audioContext.currentTime;
+    bubble.audio.gain.gain.cancelScheduledValues(now);
+    bubble.audio.gain.gain.setValueAtTime(bubble.audio.gain.gain.value || 0.0001, now);
+    bubble.audio.gain.gain.linearRampToValueAtTime(0.0001, now + FADE_SECONDS);
+  }
 
   return new Promise((resolve) => {
     window.setTimeout(() => {
@@ -588,25 +717,40 @@ async function clearBubbles(notify = true) {
   }
 }
 
-function handleCanvasTap(event) {
+function performPointerRaycast(clientX, clientY) {
   const rect = state.renderer.domElement.getBoundingClientRect();
-  scratch.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  scratch.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  scratch.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  scratch.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
   scratch.raycaster.setFromCamera(scratch.pointer, state.camera);
-
   const hits = scratch.raycaster.intersectObjects(state.scene.children, true);
-  const hit = hits.find((entry) => entry.object.parent?.userData?.bubbleId || entry.object.userData?.bubbleId);
+  const hit = hits.find((entry) => entry.object.userData?.bubbleId || entry.object.parent?.userData?.bubbleId);
+  return hit ? hit.object.userData?.bubbleId || hit.object.parent?.userData?.bubbleId : '';
+}
+
+async function handleCanvasTap(event) {
+  const bubbleId = performPointerRaycast(event.clientX, event.clientY);
+  if (bubbleId) {
+    await touchBubbleById(bubbleId);
+  }
+}
+
+async function handleXRSelect() {
+  scratch.matrix.identity().extractRotation(state.renderer.xr.getController(0).matrixWorld);
+  scratch.raycaster.ray.origin.setFromMatrixPosition(state.renderer.xr.getController(0).matrixWorld);
+  scratch.raycaster.ray.direction.set(0, 0, -1).applyMatrix4(scratch.matrix).normalize();
+  const hits = scratch.raycaster.intersectObjects(state.scene.children, true);
+  const hit = hits.find((entry) => entry.object.userData?.bubbleId || entry.object.parent?.userData?.bubbleId);
   if (!hit) {
     return;
   }
   const bubbleId = hit.object.userData?.bubbleId || hit.object.parent?.userData?.bubbleId;
   if (bubbleId) {
-    toggleBubbleById(bubbleId);
+    await touchBubbleById(bubbleId);
   }
 }
 
 function updateFallbackLook() {
-  if (state.orientationActive) {
+  if (state.xrSession) {
     return;
   }
   state.camera.rotation.order = 'YXZ';
@@ -614,109 +758,151 @@ function updateFallbackLook() {
   state.camera.rotation.x = state.pitch;
 }
 
-function applyDeviceOrientation(alpha, beta, gamma) {
-  if (!Number.isFinite(alpha) || !Number.isFinite(beta) || !Number.isFinite(gamma)) {
-    return;
-  }
-
-  const alphaRad = THREE.MathUtils.degToRad(alpha);
-  const betaRad = THREE.MathUtils.degToRad(beta);
-  const gammaRad = THREE.MathUtils.degToRad(gamma);
-
-  if (!state.hasAlphaOffset) {
-    state.deviceAlphaOffset = alphaRad;
-    state.hasAlphaOffset = true;
-  }
-
-  state.deviceEuler.set(betaRad, alphaRad - state.deviceAlphaOffset, -gammaRad, 'YXZ');
-  state.deviceQuaternion.setFromEuler(state.deviceEuler);
-  state.camera.quaternion.slerp(state.deviceQuaternion, 0.18);
-  state.orientationActive = true;
-}
-
-async function requestPermissions() {
-  try {
-    await ensureAudio();
-    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-      const result = await DeviceOrientationEvent.requestPermission();
-      state.orientationPermissionGranted = result === 'granted';
-    } else {
-      state.orientationPermissionGranted = true;
-    }
-
-    if (state.orientationPermissionGranted) {
-      dom.permissionButton.textContent = 'Motion + audio enabled';
-      updateStatus('Motion and audio unlocked. Generate bubbles and move through the mix.');
-      showToast('Audio and motion access enabled.');
-    } else {
-      showToast('Motion permission denied. Drag to look around instead.');
-    }
-  } catch (error) {
-    console.warn(error);
-    showToast('Could not unlock motion. Drag to look and tap again for audio.');
-  }
-}
-
 function initThree() {
   state.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
   state.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   state.renderer.setSize(window.innerWidth, window.innerHeight);
   state.renderer.outputColorSpace = THREE.SRGBColorSpace;
+  state.renderer.xr.enabled = true;
   dom.scene.append(state.renderer.domElement);
 
   state.scene = new THREE.Scene();
-  state.scene.fog = new THREE.Fog(0x050814, 3.5, 12);
+  state.scene.fog = new THREE.Fog(0x060813, 3.5, 12);
 
-  state.camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.01, 40);
+  state.camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.01, 50);
   state.camera.position.set(0, 0, 0);
 
-  const hemi = new THREE.HemisphereLight(0xaadfff, 0x050814, 1.2);
-  const key = new THREE.PointLight(0x86ebff, 24, 12, 1.8);
-  key.position.set(0, 1.8, 0.8);
-  const rim = new THREE.PointLight(0x8b81ff, 10, 8, 2.2);
-  rim.position.set(-1.4, 1.2, -1.2);
+  const hemi = new THREE.HemisphereLight(0xb6e8ff, 0x04060e, 1.25);
+  const key = new THREE.PointLight(0x81e2ff, 24, 14, 1.8);
+  key.position.set(0, 2, 0.8);
+  const rim = new THREE.PointLight(0x9388ff, 10, 8, 2.1);
+  rim.position.set(-1.2, 1.4, -1.3);
   state.scene.add(hemi, key, rim);
 
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(RING_RADIUS, 0.008, 16, 180),
-    new THREE.MeshBasicMaterial({ color: 0x31425f, transparent: true, opacity: 0.35 }),
-  );
-  ring.rotation.x = Math.PI / 2;
-  ring.position.y = -0.02;
-  state.scene.add(ring);
-
-  const starGeometry = new THREE.BufferGeometry();
-  const starCount = 320;
-  const positions = new Float32Array(starCount * 3);
+  const starsGeometry = new THREE.BufferGeometry();
+  const starCount = 280;
+  const starPositions = new Float32Array(starCount * 3);
   for (let i = 0; i < starCount; i += 1) {
-    const radius = THREE.MathUtils.randFloat(3.8, 9.5);
+    const radius = THREE.MathUtils.randFloat(4, 10);
     const theta = THREE.MathUtils.randFloat(0, Math.PI * 2);
     const phi = THREE.MathUtils.randFloat(0.15, Math.PI - 0.2);
-    positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
-    positions[i * 3 + 1] = radius * Math.cos(phi);
-    positions[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
+    starPositions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+    starPositions[i * 3 + 1] = radius * Math.cos(phi);
+    starPositions[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
   }
-  starGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  starsGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
   const stars = new THREE.Points(
-    starGeometry,
-    new THREE.PointsMaterial({ color: 0xbfe7ff, size: 0.03, transparent: true, opacity: 0.8 }),
+    starsGeometry,
+    new THREE.PointsMaterial({ color: 0xc7ecff, size: 0.03, transparent: true, opacity: 0.82 }),
   );
   state.scene.add(stars);
+
+  const controller = state.renderer.xr.getController(0);
+  controller.addEventListener('select', () => {
+    handleXRSelect();
+  });
+  state.scene.add(controller);
+}
+
+async function checkArSupport() {
+  if (!navigator.xr?.isSessionSupported) {
+    dom.enterArButton.disabled = true;
+    markSessionChip(false, 'AR unavailable');
+    updateStatus('This browser does not support immersive AR.');
+    return;
+  }
+
+  try {
+    const supported = await navigator.xr.isSessionSupported('immersive-ar');
+    if (supported) {
+      markSessionChip(false, 'AR ready');
+      updateStatus('Import sounds, then enter AR for the fullscreen live scene.');
+    } else {
+      dom.enterArButton.disabled = true;
+      markSessionChip(false, 'AR unavailable');
+      updateStatus('Immersive AR is not available on this device.');
+    }
+  } catch (error) {
+    console.warn(error);
+    dom.enterArButton.disabled = true;
+    markSessionChip(false, 'AR check failed');
+    updateStatus('Unable to verify AR support.');
+  }
+}
+
+async function enterAr() {
+  if (!navigator.xr || state.xrSession) {
+    return;
+  }
+
+  try {
+    await ensureAudioContext();
+    const session = await navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures: ['local-floor'],
+      optionalFeatures: ['dom-overlay'],
+      domOverlay: { root: dom.overlay },
+    });
+
+    session.addEventListener('end', handleSessionEnd);
+    await state.renderer.xr.setSession(session);
+    state.xrSession = session;
+    dom.overlay.classList.add('is-ar');
+    dom.dockButton.classList.remove('hidden');
+    dom.exitArButton.classList.remove('hidden');
+    dom.enterArButton.textContent = 'AR active';
+    dom.enterArButton.disabled = true;
+    markSessionChip(true, 'AR live');
+    markFocusChip(false, 'Touch bubbles to wake sound');
+    updateStatus('AR is live. Generate bubbles and touch them to wake audio.');
+    wakeHud();
+    closeHudSoon();
+  } catch (error) {
+    console.warn(error);
+    showToast('Unable to start AR on this device.');
+  }
+}
+
+function handleSessionEnd() {
+  state.xrSession = null;
+  dom.overlay.classList.remove('is-ar');
+  dom.panelShell.classList.remove('is-faded');
+  dom.dockButton.classList.add('hidden');
+  dom.exitArButton.classList.add('hidden');
+  dom.enterArButton.textContent = 'Enter AR';
+  dom.enterArButton.disabled = false;
+  markSessionChip(false, 'AR ended');
+  markFocusChip(false, 'Touch bubbles to wake sound');
+  updateStatus('AR ended. You can re-enter at any time.');
+  window.clearTimeout(state.hudTimer);
+}
+
+async function exitAr() {
+  if (state.xrSession) {
+    await state.xrSession.end();
+  }
 }
 
 function attachEvents() {
   dom.importButton.addEventListener('click', () => dom.fileInput.click());
+  dom.importInlineButton.addEventListener('click', () => dom.fileInput.click());
   dom.fileInput.addEventListener('change', async (event) => {
     const files = Array.from(event.target.files || []);
     event.target.value = '';
     await importFiles(files);
   });
 
-  dom.selectedList.addEventListener('click', (event) => {
+  dom.enterArButton.addEventListener('click', () => enterAr());
+  dom.exitArButton.addEventListener('click', () => exitAr());
+  dom.dockButton.addEventListener('click', () => {
+    wakeHud();
+  });
+
+  dom.assetList.addEventListener('click', (event) => {
     const button = event.target.closest('[data-asset-id]');
     if (!button) {
       return;
     }
+
     const { assetId } = button.dataset;
     if (state.selectedIds.has(assetId)) {
       state.selectedIds.delete(assetId);
@@ -724,41 +910,42 @@ function attachEvents() {
       state.selectedIds.add(assetId);
     }
     renderBubbleSet();
+    wakeHud();
   });
 
   dom.bubbleSlider.addEventListener('input', (event) => {
     state.bubbleCount = clampBubbleCount(event.target.value);
     updateSelectionSummary();
+    wakeHud();
   });
 
   dom.generateButton.addEventListener('click', () => generateScene());
   dom.addForwardButton.addEventListener('click', () => addBubbleAhead());
   dom.undoButton.addEventListener('click', () => undoBubble());
   dom.clearButton.addEventListener('click', () => clearBubbles());
-  dom.permissionButton.addEventListener('click', () => requestPermissions());
-
-  dom.togglePanelButton.addEventListener('click', () => {
-    const collapsed = dom.controlPanel.classList.toggle('is-collapsed');
-    dom.togglePanelButton.textContent = collapsed ? 'Show controls' : 'Hide controls';
-    dom.togglePanelButton.setAttribute('aria-expanded', String(!collapsed));
-  });
 
   dom.bubbleList.addEventListener('click', (event) => {
-    const toggle = event.target.closest('[data-toggle-bubble]');
-    if (!toggle) {
+    const button = event.target.closest('[data-focus-bubble]');
+    if (!button) {
       return;
     }
-    toggleBubbleById(toggle.dataset.toggleBubble);
+    touchBubbleById(button.dataset.focusBubble);
   });
 
-  state.renderer.domElement.addEventListener('click', (event) => {
+  dom.overlay.addEventListener('pointerdown', () => wakeHud());
+  dom.overlay.addEventListener('pointerup', () => closeHudSoon());
+
+  state.renderer.domElement.addEventListener('click', async (event) => {
     if (state.dragging || state.dragMoved) {
       return;
     }
-    handleCanvasTap(event);
+    await handleCanvasTap(event);
   });
 
   state.renderer.domElement.addEventListener('pointerdown', (event) => {
+    if (state.xrSession) {
+      return;
+    }
     if (event.pointerType === 'mouse' || event.pointerType === 'touch') {
       state.dragging = true;
       state.dragPointerId = event.pointerId;
@@ -770,9 +957,10 @@ function attachEvents() {
   });
 
   state.renderer.domElement.addEventListener('pointermove', (event) => {
-    if (!state.dragging || state.dragPointerId !== event.pointerId || state.orientationActive) {
+    if (state.xrSession || !state.dragging || state.dragPointerId !== event.pointerId) {
       return;
     }
+
     const dx = event.clientX - state.lastPointer.x;
     const dy = event.clientY - state.lastPointer.y;
     if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
@@ -804,18 +992,9 @@ function attachEvents() {
     state.camera.updateProjectionMatrix();
     state.renderer.setSize(window.innerWidth, window.innerHeight);
   });
-
-  window.addEventListener('deviceorientation', (event) => {
-    if (!state.orientationPermissionGranted) {
-      return;
-    }
-    applyDeviceOrientation(event.alpha, event.beta, event.gamma);
-  });
 }
 
-function animate() {
-  requestAnimationFrame(animate);
-  const time = performance.now();
+function renderLoop(time) {
   const delta = state.clock.getDelta();
   updateFallbackLook();
   updateListener();
@@ -830,10 +1009,11 @@ async function init() {
   renderBubbleSet();
   renderActiveBubbles();
   updateSelectionSummary();
-  animate();
+  await checkArSupport();
+  state.renderer.setAnimationLoop(renderLoop);
 
   if (state.bubbleSet.length) {
-    updateStatus('Your bubble set is ready. Select sounds and generate a scene.');
+    updateStatus('Bubble set restored. Enter AR when you are ready.');
   }
 }
 
