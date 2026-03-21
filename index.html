@@ -199,7 +199,9 @@
 
       .panel {
         display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
         gap: 12px;
+        min-height: 0;
         max-height: min(46vh, 420px);
         overflow: hidden;
         padding: 14px;
@@ -238,6 +240,7 @@
 
       .carousel-shell {
         display: grid;
+        grid-template-rows: minmax(0, 1fr) auto auto;
         gap: 12px;
         min-height: 0;
       }
@@ -248,6 +251,7 @@
       }
 
       .carousel-track {
+        height: 100%;
         grid-auto-flow: column;
         grid-auto-columns: 100%;
         gap: 12px;
@@ -258,6 +262,15 @@
       .carousel-slide {
         min-width: 0;
         min-height: 0;
+        overflow: hidden;
+      }
+
+      .carousel-slide > .section {
+        height: 100%;
+        min-height: 0;
+        overflow: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
       }
 
       .carousel-nav {
