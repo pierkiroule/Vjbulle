@@ -48,6 +48,7 @@ const state = {
   pitch: 0,
   bubbleSerial: 0,
   toastTimer: 0,
+  carouselIndex: 0,
 };
 
 const dom = {
@@ -79,7 +80,18 @@ const dom = {
   bubbleList: document.querySelector('#bubbleList'),
   emptyScene: document.querySelector('#emptyScene'),
   toast: document.querySelector('#toast'),
+  carouselTrack: document.querySelector('#carouselTrack'),
+  prevSlideButton: document.querySelector('#prevSlideButton'),
+  nextSlideButton: document.querySelector('#nextSlideButton'),
+  carouselLabel: document.querySelector('#carouselLabel'),
+  carouselDots: document.querySelector('#carouselDots'),
 };
+
+const carouselSlides = [
+  'Bubble set',
+  'Generation',
+  'Active bubbles',
+];
 
 function showToast(message) {
   window.clearTimeout(state.toastTimer);
@@ -242,6 +254,40 @@ function renderActiveBubbles() {
     `;
     dom.bubbleList.append(card);
   }
+}
+
+
+function syncCarousel() {
+  const index = state.carouselIndex;
+  dom.carouselTrack.style.transform = `translateX(calc(${-index * 100}% - ${index * 12}px))`;
+  dom.carouselLabel.textContent = carouselSlides[index];
+  dom.prevSlideButton.disabled = index === 0;
+  dom.nextSlideButton.disabled = index === carouselSlides.length - 1;
+
+  [...dom.carouselDots.children].forEach((dot, dotIndex) => {
+    dot.classList.toggle('is-active', dotIndex === index);
+  });
+}
+
+function setCarouselIndex(nextIndex) {
+  state.carouselIndex = Math.min(carouselSlides.length - 1, Math.max(0, nextIndex));
+  syncCarousel();
+}
+
+function initCarousel() {
+  dom.carouselDots.innerHTML = '';
+  carouselSlides.forEach((label, index) => {
+    const dot = document.createElement('button');
+    dot.type = 'button';
+    dot.className = `carousel-dot${index === 0 ? ' is-active' : ''}`;
+    dot.setAttribute('aria-label', label);
+    dot.addEventListener('click', () => {
+      setCarouselIndex(index);
+      wakeHud();
+    });
+    dom.carouselDots.append(dot);
+  });
+  syncCarousel();
 }
 
 function markSessionChip(active, text) {
@@ -897,6 +943,16 @@ function attachEvents() {
     wakeHud();
   });
 
+  dom.prevSlideButton.addEventListener('click', () => {
+    setCarouselIndex(state.carouselIndex - 1);
+    wakeHud();
+  });
+
+  dom.nextSlideButton.addEventListener('click', () => {
+    setCarouselIndex(state.carouselIndex + 1);
+    wakeHud();
+  });
+
   dom.assetList.addEventListener('click', (event) => {
     const button = event.target.closest('[data-asset-id]');
     if (!button) {
@@ -1009,6 +1065,7 @@ async function init() {
   renderBubbleSet();
   renderActiveBubbles();
   updateSelectionSummary();
+  initCarousel();
   await checkArSupport();
   state.renderer.setAnimationLoop(renderLoop);
 

@@ -169,7 +169,9 @@
       .panel-actions,
       .action-grid,
       .asset-list,
-      .bubble-list {
+      .bubble-list,
+      .carousel-track,
+      .carousel-dots {
         display: grid;
         gap: 10px;
       }
@@ -199,7 +201,7 @@
         display: grid;
         gap: 12px;
         max-height: min(68vh, 760px);
-        overflow: auto;
+        overflow: hidden;
         padding: 14px;
         border-radius: 24px;
         border: 1px solid rgba(255, 255, 255, 0.12);
@@ -232,6 +234,64 @@
         border-radius: 18px;
         border: 1px solid rgba(255, 255, 255, 0.08);
         background: rgba(255, 255, 255, 0.04);
+      }
+
+      .carousel-shell {
+        display: grid;
+        gap: 12px;
+        min-height: 0;
+      }
+
+      .carousel-viewport {
+        overflow: hidden;
+        min-height: 0;
+      }
+
+      .carousel-track {
+        grid-auto-flow: column;
+        grid-auto-columns: 100%;
+        gap: 12px;
+        transition: transform 240ms ease;
+        will-change: transform;
+      }
+
+      .carousel-slide {
+        min-width: 0;
+        min-height: 0;
+      }
+
+      .carousel-nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .carousel-dots {
+        grid-auto-flow: column;
+        grid-auto-columns: 10px;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+      }
+
+      .carousel-dot {
+        width: 10px;
+        height: 10px;
+        padding: 0;
+        border-radius: 999px;
+        border: 0;
+        background: rgba(255, 255, 255, 0.18);
+      }
+
+      .carousel-dot.is-active {
+        background: var(--accent);
+        box-shadow: 0 0 0 4px rgba(140, 231, 255, 0.16);
+      }
+
+      .carousel-label {
+        min-width: 92px;
+        text-align: center;
       }
 
       .panel p,
@@ -310,7 +370,7 @@
 
       .asset-list,
       .bubble-list {
-        max-height: 20vh;
+        max-height: min(24vh, 220px);
         overflow: auto;
         padding-right: 4px;
       }
@@ -569,49 +629,69 @@
             <button id="exitArButton" class="mini-btn hidden" type="button">Exit AR</button>
           </div>
 
-          <div class="section">
-            <div class="row">
-              <div>
-                <div class="micro">Bubble set</div>
-                <strong id="libraryCount">0 sounds</strong>
-              </div>
-              <button id="importInlineButton" class="mini-btn" type="button">Import</button>
-            </div>
-            <p>No preview mode. Imported sounds stay silent until they become bubbles in the scene.</p>
-            <div id="assetList" class="asset-list"></div>
-            <div id="emptyLibrary" class="empty">Import mp3 or wav files to build the bubble set.</div>
-          </div>
+          <div class="carousel-shell">
+            <div class="carousel-viewport">
+              <div id="carouselTrack" class="carousel-track">
+                <div class="carousel-slide">
+                  <div class="section">
+                    <div class="row">
+                      <div>
+                        <div class="micro">Bubble set</div>
+                        <strong id="libraryCount">0 sounds</strong>
+                      </div>
+                      <button id="importInlineButton" class="mini-btn" type="button">Import</button>
+                    </div>
+                    <p>No preview mode. Imported sounds stay silent until they become bubbles in the scene.</p>
+                    <div id="assetList" class="asset-list"></div>
+                    <div id="emptyLibrary" class="empty">Import mp3 or wav files to build the bubble set.</div>
+                  </div>
+                </div>
 
-          <div class="section">
-            <div class="row">
-              <div>
-                <div class="micro">Scene generation</div>
-                <strong id="selectionSummary">Select at least one sound</strong>
-              </div>
-              <div id="bubbleSliderMeta" class="step">4 bubbles</div>
-            </div>
-            <div class="slider-wrap">
-              <label class="hint" for="bubbleCount">Number of bubbles</label>
-              <input id="bubbleCount" type="range" min="1" max="10" step="1" value="4" />
-            </div>
-            <div class="action-grid">
-              <button id="generateButton" class="action-btn" type="button">Generate</button>
-              <button id="addForwardButton" class="action-btn ghost" type="button">Add ahead</button>
-              <button id="undoButton" class="action-btn" type="button">Undo</button>
-              <button id="clearButton" class="action-btn danger" type="button">Clear</button>
-            </div>
-            <div class="hint">Tap a bubble in AR to wake its audio. Every tap also toggles collé / décoller.</div>
-          </div>
+                <div class="carousel-slide">
+                  <div class="section">
+                    <div class="row">
+                      <div>
+                        <div class="micro">Scene generation</div>
+                        <strong id="selectionSummary">Select at least one sound</strong>
+                      </div>
+                      <div id="bubbleSliderMeta" class="step">4 bubbles</div>
+                    </div>
+                    <div class="slider-wrap">
+                      <label class="hint" for="bubbleCount">Number of bubbles</label>
+                      <input id="bubbleCount" type="range" min="1" max="10" step="1" value="4" />
+                    </div>
+                    <div class="action-grid">
+                      <button id="generateButton" class="action-btn" type="button">Generate</button>
+                      <button id="addForwardButton" class="action-btn ghost" type="button">Add ahead</button>
+                      <button id="undoButton" class="action-btn" type="button">Undo</button>
+                      <button id="clearButton" class="action-btn danger" type="button">Clear</button>
+                    </div>
+                    <div class="hint">Tap a bubble in AR to wake its audio. Every tap also toggles collé / décoller.</div>
+                  </div>
+                </div>
 
-          <div class="section">
-            <div class="row">
-              <div>
-                <div class="micro">Active bubbles</div>
-                <strong id="activeCount">0 live</strong>
+                <div class="carousel-slide">
+                  <div class="section">
+                    <div class="row">
+                      <div>
+                        <div class="micro">Active bubbles</div>
+                        <strong id="activeCount">0 live</strong>
+                      </div>
+                    </div>
+                    <div id="bubbleList" class="bubble-list"></div>
+                    <div id="emptyScene" class="empty">Generate in AR to surround yourself with bubbles.</div>
+                  </div>
+                </div>
               </div>
             </div>
-            <div id="bubbleList" class="bubble-list"></div>
-            <div id="emptyScene" class="empty">Generate in AR to surround yourself with bubbles.</div>
+
+            <div class="carousel-nav">
+              <button id="prevSlideButton" class="mini-btn" type="button">Prev</button>
+              <div id="carouselLabel" class="hint carousel-label">Bubble set</div>
+              <button id="nextSlideButton" class="mini-btn" type="button">Next</button>
+            </div>
+
+            <div id="carouselDots" class="carousel-dots"></div>
           </div>
         </section>
       </div>
