@@ -159,7 +159,6 @@ select:disabled {
 }
 
 .dock-handle,
-.ghost-button,
 .action-button,
 .primary-button,
 .sheet-card select {
@@ -172,8 +171,7 @@ select:disabled {
 
 .dock-handle,
 .primary-button,
-.action-button,
-.ghost-button {
+.action-button {
   min-height: 48px;
 }
 
@@ -255,17 +253,17 @@ select:disabled {
 
 .sheet-header,
 .card-row,
-.sheet-footer,
-.sheet-actions {
+.sheet-footer {
   display: flex;
   align-items: center;
   gap: 12px;
+  justify-content: space-between;
 }
 
-.sheet-header,
-.card-row,
-.sheet-footer {
-  justify-content: space-between;
+.sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .sheet-header {
@@ -276,10 +274,6 @@ select:disabled {
   font-size: clamp(1.7rem, 5vw, 2.4rem);
 }
 
-.ghost-button {
-  padding: 0 16px;
-  background: rgba(255, 255, 255, 0.06);
-}
 
 .sheet-scroll {
   overflow: auto;
@@ -311,10 +305,6 @@ select:disabled {
   min-height: 48px;
   padding: 0 14px;
   appearance: none;
-}
-
-.sheet-actions {
-  flex-wrap: wrap;
 }
 
 .action-button,
@@ -398,10 +388,6 @@ select:disabled {
   .sheet-header {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .ghost-button {
-    width: 100%;
   }
 
   .sheet-actions {

@@ -5,14 +5,12 @@ function getModeLabel(isListeningMode) {
   return isListeningMode ? 'Listening' : 'Creation';
 }
 
-function getLauncherLabel({ isSessionActive, selectedAsset, isListeningMode, bubbleCount }) {
+function getDockLabel({ isSessionActive, isListeningMode, selectedAsset }) {
   if (!isSessionActive) {
-    return selectedAsset ? `Ready · ${selectedAsset.name}` : 'Setup';
+    return selectedAsset ? 'Setup · ready' : 'Setup';
   }
 
-  const mode = getModeLabel(isListeningMode);
-  const source = selectedAsset ? selectedAsset.name : 'No source';
-  return `${mode} · ${source} · ${bubbleCount}/8`;
+  return `Menu · ${getModeLabel(isListeningMode)}`;
 }
 
 function App() {
@@ -55,7 +53,8 @@ function App() {
   };
 
   const modeLabel = getModeLabel(isListeningMode);
-  const launcherLabel = getLauncherLabel({ isSessionActive, selectedAsset, isListeningMode, bubbleCount });
+  const dockLabel = getDockLabel({ isSessionActive, isListeningMode, selectedAsset });
+  const nextModeAction = isListeningMode ? 'Switch to creation' : 'Switch to listening';
 
   return (
     <div className="app-shell" onPointerDown={pingHud}>
@@ -66,16 +65,14 @@ function App() {
           <section className="hero-copy-block">
             <div className="eyebrow">Spatial sound AR</div>
             <h1>EchoBubbleLoop</h1>
-            <p>
-              Import a sound, choose the active source, then launch AR. Once inside, everything stays in one bottom menu.
-            </p>
+            <p>Import a sound, pick the active source, then enter AR. Once inside, use one bottom menu for everything.</p>
           </section>
         )}
 
-        <div className={`bottom-dock ${isSessionActive ? 'is-ar' : ''} ${isHudVisible ? 'is-visible' : 'is-dimmed'}`}>
+        <div className={`bottom-dock ${isHudVisible ? 'is-visible' : 'is-dimmed'}`}>
           <button type="button" className="dock-handle" onClick={toggleMenu}>
-            <span className="dock-handle__meta">{isSessionActive ? 'Menu' : 'Setup'}</span>
-            <strong>{launcherLabel}</strong>
+            <span className="dock-handle__meta">{isSessionActive ? 'Controls' : 'Preparation'}</span>
+            <strong>{dockLabel}</strong>
           </button>
         </div>
 
@@ -86,18 +83,15 @@ function App() {
 
             <div className="sheet-header">
               <div>
-                <p className="sheet-kicker">{isSessionActive ? 'AR session' : 'Preparation'}</p>
+                <p className="sheet-kicker">{isSessionActive ? 'In AR' : 'Before AR'}</p>
                 <h2>{isSessionActive ? 'Quick controls' : 'Get ready'}</h2>
               </div>
-              <button type="button" className="ghost-button" onClick={dismissMenu}>
-                Close
-              </button>
             </div>
 
             <div className="sheet-scroll">
               <section className="sheet-card sheet-card--status">
-                <span className="card-label">Status</span>
-                <strong>{modeLabel}</strong>
+                <span className="card-label">Current step</span>
+                <strong>{isSessionActive ? modeLabel : selectedAsset ? 'Ready to enter AR' : 'Add your first sound'}</strong>
                 <p>{availabilityMessage || readiness}</p>
               </section>
 
@@ -118,28 +112,44 @@ function App() {
                     </option>
                   ))}
                 </select>
-                <p>{selectedAsset ? `Active source: ${selectedAsset.name}` : 'New bubbles use the selected source.'}</p>
-              </section>
-
-              <section className="sheet-card">
-                <div className="card-row">
-                  <span className="card-label">Scene</span>
-                  <strong>{bubbleCount}/8 bubbles</strong>
-                </div>
                 <div className="sheet-actions">
                   <button type="button" className="action-button" onClick={openFilePicker}>
                     Import audio
                   </button>
-                  <button type="button" className="action-button" onClick={toggleMode}>
-                    {modeLabel}
-                  </button>
-                  {bubbleCount > 0 && (
-                    <button type="button" className="action-button action-button--danger" onClick={() => clearAllBubbles(true)}>
-                      Clear all
-                    </button>
-                  )}
                 </div>
+                <p>{selectedAsset ? `Active source: ${selectedAsset.name}` : 'New bubbles always use the active source.'}</p>
               </section>
+
+              {isSessionActive && (
+                <>
+                  <section className="sheet-card">
+                    <div className="card-row">
+                      <span className="card-label">Mode</span>
+                      <strong>{modeLabel}</strong>
+                    </div>
+                    <div className="sheet-actions">
+                      <button type="button" className="action-button" onClick={toggleMode}>
+                        {nextModeAction}
+                      </button>
+                    </div>
+                    <p>{isListeningMode ? 'Walk through the scene and listen.' : 'Tap in AR to place bubbles where you look.'}</p>
+                  </section>
+
+                  {bubbleCount > 0 && (
+                    <section className="sheet-card">
+                      <div className="card-row">
+                        <span className="card-label">Scene</span>
+                        <strong>{bubbleCount}/8 bubbles</strong>
+                      </div>
+                      <div className="sheet-actions">
+                        <button type="button" className="action-button action-button--danger" onClick={() => clearAllBubbles(true)}>
+                          Clear bubbles
+                        </button>
+                      </div>
+                    </section>
+                  )}
+                </>
+              )}
             </div>
 
             <div className="sheet-footer">
