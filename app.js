@@ -7,6 +7,7 @@ const DEFAULT_BPM = 90;
 const SPAWN_DISTANCE = 0.4;
 const STUCK_DISTANCE = 0.6;
 const LONG_PRESS_MS = 520;
+const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
 
 const dom = {
   xrRoot: document.querySelector('#xr-root'),
@@ -40,11 +41,10 @@ const dom = {
 };
 
 const shared = {
-  tempVecA: new THREE.Vector3(),
-  tempVecB: new THREE.Vector3(),
-  tempQuat: new THREE.Quaternion(),
   raycaster: new THREE.Raycaster(),
-  rayDirection: new THREE.Vector3(),
+  origin: new THREE.Vector3(),
+  direction: new THREE.Vector3(),
+  quaternion: new THREE.Quaternion(),
 };
 
 const state = {
@@ -52,10 +52,8 @@ const state = {
   scene: null,
   camera: null,
   xrSession: null,
-  xrController: null,
-  xrReferenceSpace: null,
+  lastXRFrame: null,
   audioContext: null,
-  listenerReady: false,
   masterGain: null,
   tempo: {
     bpm: DEFAULT_BPM,
@@ -70,9 +68,9 @@ const state = {
   recordingChunks: [],
   recordingStream: null,
   longPressTimer: 0,
-  controllerPressed: false,
-  supportChecked: false,
   arSupported: false,
+  sessionUsesDomOverlay: false,
+  bufferCache: new Map(),
 };
 
 bootstrap();
@@ -84,7 +82,7 @@ async function bootstrap() {
   syncTempoUi();
   bindUi();
   await checkArSupport();
-  animate();
+  state.renderer.setAnimationLoop(renderFrame);
 }
 
 function setupThree() {
@@ -92,24 +90,20 @@ function setupThree() {
   state.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 40);
   state.scene.add(state.camera);
 
-  const ambient = new THREE.HemisphereLight(0xdff5ff, 0x14233f, 1.5);
-  state.scene.add(ambient);
+  state.scene.add(new THREE.HemisphereLight(0xe9f7ff, 0x122036, 1.8));
 
-  const fill = new THREE.PointLight(0x9fe8ff, 2.4, 6, 2);
-  fill.position.set(0.8, 1.3, -1);
-  state.scene.add(fill);
+  const glow = new THREE.PointLight(0x95e9ff, 1.8, 8, 2);
+  glow.position.set(0.4, 1.4, -0.8);
+  state.scene.add(glow);
 
-  state.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  state.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: false });
+  state.renderer.xr.enabled = true;
+  state.renderer.xr.setReferenceSpaceType('local');
+  state.renderer.outputColorSpace = THREE.SRGBColorSpace;
+  state.renderer.setClearColor(0x000000, 0);
   state.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   state.renderer.setSize(window.innerWidth, window.innerHeight);
-  state.renderer.xr.enabled = true;
-  state.domOverlayRoot = document.body;
   dom.xrRoot.appendChild(state.renderer.domElement);
-
-  state.xrController = state.renderer.xr.getController(0);
-  state.xrController.addEventListener('selectstart', onSelectStart);
-  state.xrController.addEventListener('selectend', onSelectEnd);
-  state.scene.add(state.xrController);
 
   window.addEventListener('resize', onResize);
 }
@@ -131,6 +125,9 @@ function bindUi() {
   dom.sourceImport.addEventListener('click', () => dom.fileInput.click());
   dom.sourceRecord.addEventListener('click', toggleRecording);
   dom.fileInput.addEventListener('change', onFilePicked);
+
+  const canRecord = Boolean(window.MediaRecorder && navigator.mediaDevices?.getUserMedia && AudioContextCtor);
+  dom.sourceRecord.disabled = !canRecord;
 }
 
 function createEmptyPad(index) {
@@ -152,6 +149,7 @@ function loadPads() {
     if (!raw) return;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return;
+
     state.pads = Array.from({ length: MAX_PADS }, (_, index) => ({
       ...createEmptyPad(index),
       ...(parsed[index] || {}),
@@ -168,9 +166,9 @@ function savePads() {
 }
 
 function syncTempoUi() {
-  const bpmLabel = `${state.tempo.bpm} BPM`;
-  dom.tempoText.textContent = bpmLabel;
-  dom.configBpm.textContent = bpmLabel;
+  const label = `${state.tempo.bpm} BPM`;
+  dom.tempoText.textContent = label;
+  dom.configBpm.textContent = label;
   syncBubbleCount();
 }
 
@@ -178,8 +176,8 @@ function syncBubbleCount() {
   dom.bubbleCount.textContent = `${state.bubbles.length} / ${MAX_BUBBLES}`;
 }
 
-function setStatus(text) {
-  dom.statusText.textContent = text;
+function setStatus(message) {
+  dom.statusText.textContent = message;
 }
 
 function renderPads() {
@@ -198,10 +196,7 @@ function renderPads() {
     let pressTimer = 0;
     button.addEventListener('pointerdown', () => {
       if (!pad.url) return;
-      pressTimer = window.setTimeout(() => {
-        state.sourcePadIndex = index;
-        openSourceSheet(index, true);
-      }, LONG_PRESS_MS);
+      pressTimer = window.setTimeout(() => openSourceSheet(index, true), LONG_PRESS_MS);
     });
     button.addEventListener('pointerup', () => window.clearTimeout(pressTimer));
     button.addEventListener('pointerleave', () => window.clearTimeout(pressTimer));
@@ -216,7 +211,7 @@ function handlePadTap(index) {
     openSourceSheet(index, false);
     return;
   }
-  createBubbleFromPad(pad);
+  void createBubbleFromPad(pad);
 }
 
 function openSourceSheet(index, replacing) {
@@ -241,17 +236,22 @@ async function onFilePicked(event) {
 
   const slot = state.sourcePadIndex ?? firstEmptyPadIndex();
   if (slot === -1) {
-    setStatus('All pads are full. Long press a filled pad to replace it.');
     closeSourceSheet();
+    setStatus('All pads are full. Long press a filled pad to replace one.');
     return;
   }
 
-  const pad = await createPadFromFile(file, slot);
-  state.pads[slot] = pad;
-  savePads();
-  closeSourceSheet();
-  renderPads();
-  setStatus(`${pad.name} is ready. Tap the pad to place a bubble.`);
+  try {
+    const pad = await createPadFromFile(file, slot);
+    state.pads[slot] = pad;
+    savePads();
+    closeSourceSheet();
+    renderPads();
+    setStatus(`${pad.name} is ready. Tap the pad to place a bubble.`);
+  } catch (error) {
+    console.error(error);
+    setStatus('Audio import failed on this device.');
+  }
 }
 
 function firstEmptyPadIndex() {
@@ -259,9 +259,13 @@ function firstEmptyPadIndex() {
 }
 
 async function createPadFromFile(file, slot) {
+  if (!AudioContextCtor) {
+    throw new Error('Web Audio unavailable');
+  }
+
   const dataUrl = await fileToDataUrl(file);
   const arrayBuffer = await file.arrayBuffer();
-  const context = new AudioContext();
+  const context = new AudioContextCtor();
   const buffer = await context.decodeAudioData(arrayBuffer.slice(0));
   await context.close();
 
@@ -298,12 +302,17 @@ function analyzeLoop(duration) {
 }
 
 async function ensureAudio() {
+  if (!AudioContextCtor) {
+    throw new Error('Web Audio unavailable');
+  }
+
   if (!state.audioContext) {
-    state.audioContext = new AudioContext();
+    state.audioContext = new AudioContextCtor();
     state.masterGain = state.audioContext.createGain();
     state.masterGain.gain.value = 0.95;
     state.masterGain.connect(state.audioContext.destination);
   }
+
   if (state.audioContext.state !== 'running') {
     await state.audioContext.resume();
   }
@@ -314,82 +323,82 @@ async function createBubbleFromPad(pad) {
     setStatus('Enter AR to place bubbles in space.');
     return;
   }
+
   if (state.bubbles.length >= MAX_BUBBLES) {
     setStatus('Maximum of 8 active bubbles reached.');
     return;
   }
 
-  await ensureAudio();
-  const buffer = await loadAudioBuffer(pad.url);
-  const { position, forward } = getPlacementPose();
-  const range = mapLoopToRange(pad.loopEnd);
-  const bubble = buildBubbleVisual(range);
-  bubble.group.position.copy(position.clone().add(forward.multiplyScalar(SPAWN_DISTANCE)));
-  bubble.group.scale.setScalar(0.01);
-  bubble.group.userData.bubbleId = bubble.id;
-  state.scene.add(bubble.group);
+  try {
+    await ensureAudio();
+    const buffer = await loadAudioBuffer(pad.url);
+    const pose = getPlacementPose();
+    const range = mapLoopToRange(pad.loopEnd);
+    const bubbleVisual = buildBubbleVisual(range);
+    bubbleVisual.group.position.copy(pose.position).addScaledVector(pose.forward, SPAWN_DISTANCE);
+    bubbleVisual.group.scale.setScalar(0.01);
+    state.scene.add(bubbleVisual.group);
 
-  const source = state.audioContext.createBufferSource();
-  source.buffer = buffer;
-  source.loop = true;
-  source.loopStart = pad.loopStart;
-  source.loopEnd = Math.min(buffer.duration, pad.loopEnd || buffer.duration);
+    const source = state.audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    source.loopStart = pad.loopStart;
+    source.loopEnd = Math.min(buffer.duration, pad.loopEnd || buffer.duration);
 
-  const gainNode = state.audioContext.createGain();
-  gainNode.gain.value = 0;
+    const gainNode = state.audioContext.createGain();
+    gainNode.gain.value = 0;
 
-  const panner = new PannerNode(state.audioContext, {
-    panningModel: 'HRTF',
-    distanceModel: 'linear',
-    refDistance: 0.4,
-    maxDistance: Math.max(range * 2, 6),
-    rolloffFactor: 1,
-    coneInnerAngle: 360,
-    coneOuterAngle: 360,
-  });
+    const panner = new PannerNode(state.audioContext, {
+      panningModel: 'HRTF',
+      distanceModel: 'linear',
+      refDistance: 0.4,
+      maxDistance: Math.max(range * 2, 6),
+      rolloffFactor: 1,
+      coneInnerAngle: 360,
+      coneOuterAngle: 360,
+    });
 
-  source.connect(gainNode);
-  gainNode.connect(panner);
-  panner.connect(state.masterGain);
+    source.connect(gainNode);
+    gainNode.connect(panner);
+    panner.connect(state.masterGain);
 
-  const nextBeat = Math.ceil(state.audioContext.currentTime / state.tempo.beatDuration) * state.tempo.beatDuration;
-  source.start(nextBeat);
+    const nextBeat = Math.ceil(state.audioContext.currentTime / state.tempo.beatDuration) * state.tempo.beatDuration;
+    source.start(nextBeat);
 
-  const item = {
-    id: bubble.id,
-    padId: pad.id,
-    name: pad.name,
-    mesh: bubble.core,
-    aura: bubble.aura,
-    group: bubble.group,
-    audio: { source, gainNode, panner, buffer },
-    range,
-    gainMax: pad.gain,
-    currentGain: 0,
-    targetGain: 0,
-    stuck: false,
-    stuckDistance: STUCK_DISTANCE,
-    baseY: bubble.group.position.y,
-    driftSeed: Math.random() * Math.PI * 2,
-    spawnAt: performance.now(),
-    fadeOut: false,
-  };
+    const bubble = {
+      id: bubbleVisual.id,
+      padId: pad.id,
+      name: pad.name,
+      mesh: bubbleVisual.core,
+      aura: bubbleVisual.aura,
+      group: bubbleVisual.group,
+      audio: { source, gainNode, panner },
+      range,
+      gainMax: pad.gain,
+      currentGain: 0,
+      targetGain: 0,
+      stuck: false,
+      stuckDistance: STUCK_DISTANCE,
+      baseY: bubbleVisual.group.position.y,
+      driftSeed: Math.random() * Math.PI * 2,
+      spawnAt: performance.now(),
+      fadeOut: false,
+    };
 
-  source.onended = () => {
-    if (state.scene && item.group.parent) {
-      item.group.parent.remove(item.group);
-    }
-  };
+    source.onended = () => bubble.group.parent?.remove(bubble.group);
 
-  state.bubbles.push(item);
-  state.lastCreatedBubbleIds.push(item.id);
-  selectBubble(item.id);
-  syncBubbleCount();
-  setStatus(`${pad.name} joins on the next beat.`);
+    state.bubbles.push(bubble);
+    state.lastCreatedBubbleIds.push(bubble.id);
+    selectBubble(bubble.id);
+    syncBubbleCount();
+    setStatus(`${pad.name} joins on the next beat.`);
+  } catch (error) {
+    console.error(error);
+    setStatus('Bubble creation failed in AR.');
+  }
 }
 
 function buildBubbleVisual(range) {
-  const id = crypto.randomUUID();
   const group = new THREE.Group();
 
   const core = new THREE.Mesh(
@@ -397,11 +406,11 @@ function buildBubbleVisual(range) {
     new THREE.MeshPhysicalMaterial({
       color: 0x8fe8ff,
       transparent: true,
-      opacity: 0.7,
+      opacity: 0.72,
       roughness: 0.08,
       metalness: 0.02,
-      transmission: 0.55,
-      thickness: 0.4,
+      transmission: 0.58,
+      thickness: 0.35,
       emissive: 0x6ed9ff,
       emissiveIntensity: 0.6,
     }),
@@ -418,10 +427,14 @@ function buildBubbleVisual(range) {
     }),
   );
 
-  group.add(aura);
-  group.add(core);
+  group.add(aura, core);
 
-  return { id, group, core, aura };
+  return {
+    id: crypto.randomUUID(),
+    group,
+    core,
+    aura,
+  };
 }
 
 function mapLoopToRange(loopEnd) {
@@ -429,20 +442,29 @@ function mapLoopToRange(loopEnd) {
 }
 
 function getPlacementPose() {
-  const camera = state.renderer.xr.isPresenting ? state.renderer.xr.getCamera() : state.camera;
+  const xrCamera = state.renderer.xr.isPresenting ? state.renderer.xr.getCamera() : state.camera;
   const position = new THREE.Vector3();
   const quaternion = new THREE.Quaternion();
-  camera.getWorldPosition(position);
-  camera.getWorldQuaternion(quaternion);
-  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(quaternion).normalize();
+  const forward = new THREE.Vector3(0, 0, -1);
+
+  xrCamera.getWorldPosition(position);
+  xrCamera.getWorldQuaternion(quaternion);
+  forward.applyQuaternion(quaternion).normalize();
+
   return { position, quaternion, forward };
 }
 
 async function loadAudioBuffer(url) {
+  if (state.bufferCache.has(url)) {
+    return state.bufferCache.get(url);
+  }
+
   await ensureAudio();
   const response = await fetch(url);
   const arrayBuffer = await response.arrayBuffer();
-  return state.audioContext.decodeAudioData(arrayBuffer.slice(0));
+  const buffer = await state.audioContext.decodeAudioData(arrayBuffer.slice(0));
+  state.bufferCache.set(url, buffer);
+  return buffer;
 }
 
 async function startArSession() {
@@ -456,36 +478,76 @@ async function startArSession() {
     return;
   }
 
-  const session = await navigator.xr.requestSession('immersive-ar', {
-    requiredFeatures: ['local'],
-    optionalFeatures: ['dom-overlay'],
-    domOverlay: { root: document.body },
-  });
+  try {
+    let session;
+    try {
+      session = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['local'],
+        optionalFeatures: ['dom-overlay'],
+        domOverlay: { root: document.body },
+      });
+    } catch (overlayError) {
+      console.warn('Retrying immersive-ar without DOM overlay.', overlayError);
+      session = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['local'],
+      });
+    }
 
-  state.xrSession = session;
-  session.addEventListener('end', onSessionEnd);
-  await state.renderer.xr.setSession(session);
-  dom.enterAr.textContent = 'Exit AR';
-  setStatus('Tap a filled pad to place a loop bubble in front of you.');
-  await ensureAudio();
+    await attachSession(session);
+    setStatus('Tap a filled pad to place a loop bubble in front of you.');
+  } catch (error) {
+    console.error(error);
+    setStatus('Unable to start AR on this device.');
+  }
 }
 
-function onSessionEnd() {
+async function attachSession(session) {
+  state.xrSession = session;
+  state.sessionUsesDomOverlay = Boolean(session.domOverlayState);
+
+  session.addEventListener('end', onSessionEnd);
+  session.addEventListener('selectstart', onSessionSelectStart);
+  session.addEventListener('selectend', onSessionSelectEnd);
+
+  await state.renderer.xr.setSession(session);
+  await ensureAudio();
+
+  dom.enterAr.textContent = 'Exit AR';
+  if (!state.sessionUsesDomOverlay) {
+    setStatus('AR started. Device DOM overlay is unavailable, so UI may be limited inside the session.');
+  }
+}
+
+function onSessionEnd(event) {
+  const session = event?.target || state.xrSession;
+  session?.removeEventListener('end', onSessionEnd);
+  session?.removeEventListener('selectstart', onSessionSelectStart);
+  session?.removeEventListener('selectend', onSessionSelectEnd);
+
   state.xrSession = null;
+  state.lastXRFrame = null;
+  state.sessionUsesDomOverlay = false;
   dom.enterAr.textContent = 'Enter AR';
+  window.clearTimeout(state.longPressTimer);
   setStatus('AR session ended. Re-enter to sculpt more sound.');
 }
 
 async function checkArSupport() {
   if (!navigator.xr) {
     dom.supportBanner.classList.remove('hidden');
+    dom.enterAr.disabled = true;
     return;
   }
 
-  state.arSupported = await navigator.xr.isSessionSupported('immersive-ar');
+  try {
+    state.arSupported = await navigator.xr.isSessionSupported('immersive-ar');
+  } catch (error) {
+    console.error(error);
+    state.arSupported = false;
+  }
+
   dom.supportBanner.classList.toggle('hidden', state.arSupported);
   dom.enterAr.disabled = !state.arSupported;
-  state.supportChecked = true;
 }
 
 function selectBubble(bubbleId) {
@@ -493,6 +555,10 @@ function selectBubble(bubbleId) {
   const bubble = state.bubbles.find((item) => item.id === bubbleId);
   if (!bubble) {
     dom.bubblePanel.classList.add('hidden');
+    state.bubbles.forEach((item) => {
+      item.mesh.material.emissiveIntensity = 0.6;
+      item.aura.material.opacity = 0.05;
+    });
     return;
   }
 
@@ -511,12 +577,18 @@ function selectBubble(bubbleId) {
   });
 }
 
+function getSelectedBubble() {
+  return state.bubbles.find((item) => item.id === state.selectedBubbleId) || null;
+}
+
 function updateSelectedBubbleUi() {
   const bubble = getSelectedBubble();
   if (!bubble) return;
+
   bubble.range = Number(dom.rangeSlider.value);
   bubble.gainMax = Number(dom.gainSlider.value);
   bubble.aura.scale.setScalar(bubble.range / bubble.aura.geometry.parameters.radius);
+
   dom.rangeValue.textContent = `${bubble.range.toFixed(2)} m`;
   dom.gainValue.textContent = bubble.gainMax.toFixed(2);
 }
@@ -524,16 +596,18 @@ function updateSelectedBubbleUi() {
 function toggleSelectedStickiness() {
   const bubble = getSelectedBubble();
   if (!bubble) return;
+
   bubble.stuck = !bubble.stuck;
   dom.bubbleStick.textContent = bubble.stuck ? 'Décoller' : 'Coller';
   setStatus(bubble.stuck ? 'Bubble collée to your forward space.' : 'Bubble décollée into world space.');
 }
 
-function getSelectedBubble() {
-  return state.bubbles.find((item) => item.id === state.selectedBubbleId) || null;
-}
-
 async function toggleRecording() {
+  if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) {
+    setStatus('Microphone recording is unavailable on this device.');
+    return;
+  }
+
   if (state.recorder?.state === 'recording') {
     state.recorder.stop();
     return;
@@ -544,7 +618,9 @@ async function toggleRecording() {
     state.recordingChunks = [];
     state.recorder = new MediaRecorder(state.recordingStream);
     state.recorder.ondataavailable = (event) => {
-      if (event.data.size) state.recordingChunks.push(event.data);
+      if (event.data.size > 0) {
+        state.recordingChunks.push(event.data);
+      }
     };
     state.recorder.onstop = finishRecording;
     state.recorder.start();
@@ -553,45 +629,58 @@ async function toggleRecording() {
     setStatus('Recording microphone loop…');
   } catch (error) {
     console.error(error);
-    setStatus('Microphone recording is unavailable.');
+    setStatus('Microphone recording is unavailable on this device.');
   }
 }
 
 async function finishRecording() {
   const slot = state.sourcePadIndex ?? firstEmptyPadIndex();
   if (slot === -1) {
+    cleanupRecorder();
     closeSourceSheet();
-    setStatus('All pads are full. Long press a filled pad to replace it.');
-    state.recordingStream?.getTracks().forEach((track) => track.stop());
-    state.recordingStream = null;
+    setStatus('All pads are full. Long press a filled pad to replace one.');
     return;
   }
 
-  const blob = new Blob(state.recordingChunks, { type: state.recorder.mimeType || 'audio/webm' });
-  const file = new File([blob], `Mic Loop ${slot + 1}.webm`, { type: blob.type });
-  const pad = await createPadFromFile(file, slot);
-  pad.name = `Mic Loop ${slot + 1}`;
-  state.pads[slot] = pad;
-  savePads();
-  renderPads();
-  closeSourceSheet();
+  try {
+    const mimeType = state.recorder?.mimeType || 'audio/webm';
+    const blob = new Blob(state.recordingChunks, { type: mimeType });
+    const file = new File([blob], `Mic Loop ${slot + 1}.webm`, { type: blob.type });
+    const pad = await createPadFromFile(file, slot);
+    pad.name = `Mic Loop ${slot + 1}`;
+    state.pads[slot] = pad;
+    savePads();
+    closeSourceSheet();
+    renderPads();
+    setStatus(`${pad.name} captured and ready.`);
+  } catch (error) {
+    console.error(error);
+    setStatus('Recorded audio could not be decoded on this device.');
+  } finally {
+    cleanupRecorder();
+  }
+}
+
+function cleanupRecorder() {
   dom.sourceRecord.textContent = 'Record mic';
+  dom.recordingNote.classList.add('hidden');
   state.recordingStream?.getTracks().forEach((track) => track.stop());
   state.recordingStream = null;
-  setStatus(`${pad.name} captured and ready.`);
+  state.recorder = null;
+  state.recordingChunks = [];
 }
 
 function clearPads() {
   state.pads = Array.from({ length: MAX_PADS }, (_, index) => createEmptyPad(index));
+  state.bufferCache.clear();
   savePads();
-  renderPads();
   closeSourceSheet();
+  renderPads();
   setStatus('All pads cleared.');
 }
 
 function clearBubbles() {
-  const bubbles = [...state.bubbles];
-  bubbles.forEach((bubble) => fadeOutAndRemoveBubble(bubble));
+  [...state.bubbles].forEach((bubble) => fadeOutAndRemoveBubble(bubble));
   state.lastCreatedBubbleIds = [];
   selectBubble(null);
   syncBubbleCount();
@@ -604,41 +693,51 @@ function undoLastBubble() {
     setStatus('Nothing to undo.');
     return;
   }
+
   const bubble = state.bubbles.find((item) => item.id === bubbleId);
-  if (!bubble) return;
-  fadeOutAndRemoveBubble(bubble);
-  setStatus('Last bubble undone.');
+  if (bubble) {
+    fadeOutAndRemoveBubble(bubble);
+    setStatus('Last bubble undone.');
+  }
 }
 
 function fadeOutAndRemoveBubble(bubble) {
   bubble.fadeOut = true;
-  bubble.fadeStartedAt = state.audioContext?.currentTime || 0;
-  bubble.fadeFrom = bubble.audio?.gainNode.gain.value || 0;
+
+  if (state.audioContext) {
+    const now = state.audioContext.currentTime;
+    bubble.audio.gainNode.gain.cancelScheduledValues(now);
+    bubble.audio.gainNode.gain.setValueAtTime(bubble.currentGain, now);
+    bubble.audio.gainNode.gain.linearRampToValueAtTime(0, now + 0.25);
+  }
+
   window.setTimeout(() => {
     try {
-      bubble.audio?.source.stop();
+      bubble.audio.source.stop();
     } catch (error) {
-      // noop
+      // ignore redundant stops
     }
-    bubble.audio?.source.disconnect();
-    bubble.audio?.gainNode.disconnect();
-    bubble.audio?.panner.disconnect();
+
+    bubble.audio.source.disconnect();
+    bubble.audio.gainNode.disconnect();
+    bubble.audio.panner.disconnect();
     bubble.group.parent?.remove(bubble.group);
+
     state.bubbles = state.bubbles.filter((item) => item.id !== bubble.id);
     state.lastCreatedBubbleIds = state.lastCreatedBubbleIds.filter((id) => id !== bubble.id);
     if (state.selectedBubbleId === bubble.id) {
-      state.selectedBubbleId = null;
-      dom.bubblePanel.classList.add('hidden');
+      selectBubble(null);
     }
     syncBubbleCount();
   }, 260);
 }
 
-function onSelectStart() {
-  state.controllerPressed = true;
-  const hit = pickBubble();
+function onSessionSelectStart(event) {
+  const hit = pickBubble(event.frame, event.inputSource);
   if (!hit) return;
+
   selectBubble(hit.id);
+  window.clearTimeout(state.longPressTimer);
   state.longPressTimer = window.setTimeout(() => {
     const selected = getSelectedBubble();
     if (selected?.id === hit.id) {
@@ -648,56 +747,70 @@ function onSelectStart() {
   }, LONG_PRESS_MS);
 }
 
-function onSelectEnd() {
-  state.controllerPressed = false;
+function onSessionSelectEnd(event) {
   window.clearTimeout(state.longPressTimer);
-  const hit = pickBubble();
+  const hit = pickBubble(event.frame, event.inputSource);
   if (hit) {
     selectBubble(hit.id);
   }
 }
 
-function pickBubble() {
+function pickBubble(frame = state.lastXRFrame, inputSource = null) {
   if (!state.bubbles.length) return null;
-  const camera = state.renderer.xr.isPresenting ? state.renderer.xr.getCamera() : state.camera;
-  const origin = new THREE.Vector3();
-  const quaternion = new THREE.Quaternion();
-  camera.getWorldPosition(origin);
-  camera.getWorldQuaternion(quaternion);
-  const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(quaternion).normalize();
-  shared.raycaster.set(origin, direction);
+
+  const ray = getTargetRay(frame, inputSource);
+  if (!ray) return null;
+
+  shared.raycaster.set(ray.origin, ray.direction);
   const hits = shared.raycaster.intersectObjects(state.bubbles.map((bubble) => bubble.mesh), false);
   if (!hits.length) return null;
+
   return state.bubbles.find((bubble) => bubble.mesh === hits[0].object) || null;
 }
 
-function animate() {
-  state.renderer.setAnimationLoop(renderFrame);
+function getTargetRay(frame = state.lastXRFrame, inputSource = null) {
+  const referenceSpace = state.renderer.xr.getReferenceSpace?.();
+  if (frame && inputSource?.targetRaySpace && referenceSpace) {
+    const pose = frame.getPose(inputSource.targetRaySpace, referenceSpace);
+    if (pose) {
+      shared.origin.set(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
+      shared.quaternion.set(
+        pose.transform.orientation.x,
+        pose.transform.orientation.y,
+        pose.transform.orientation.z,
+        pose.transform.orientation.w,
+      );
+      shared.direction.set(0, 0, -1).applyQuaternion(shared.quaternion).normalize();
+      return { origin: shared.origin.clone(), direction: shared.direction.clone() };
+    }
+  }
+
+  const pose = getPlacementPose();
+  return { origin: pose.position, direction: pose.forward };
 }
 
-function renderFrame() {
-  const now = performance.now();
-
+function renderFrame(_time, frame) {
+  state.lastXRFrame = frame || null;
   updateListener();
-  updateBubbles(now);
+  updateBubbles(performance.now());
   state.renderer.render(state.scene, state.camera);
 }
 
 function updateListener() {
   if (!state.audioContext) return;
+
   const listener = state.audioContext.listener;
-  const { position, quaternion } = getPlacementPose();
-  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(quaternion).normalize();
-  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(quaternion).normalize();
+  const pose = getPlacementPose();
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(pose.quaternion).normalize();
   const t = state.audioContext.currentTime;
 
   if (listener.positionX) {
-    listener.positionX.linearRampToValueAtTime(position.x, t + 0.05);
-    listener.positionY.linearRampToValueAtTime(position.y, t + 0.05);
-    listener.positionZ.linearRampToValueAtTime(position.z, t + 0.05);
-    listener.forwardX.linearRampToValueAtTime(forward.x, t + 0.05);
-    listener.forwardY.linearRampToValueAtTime(forward.y, t + 0.05);
-    listener.forwardZ.linearRampToValueAtTime(forward.z, t + 0.05);
+    listener.positionX.linearRampToValueAtTime(pose.position.x, t + 0.05);
+    listener.positionY.linearRampToValueAtTime(pose.position.y, t + 0.05);
+    listener.positionZ.linearRampToValueAtTime(pose.position.z, t + 0.05);
+    listener.forwardX.linearRampToValueAtTime(pose.forward.x, t + 0.05);
+    listener.forwardY.linearRampToValueAtTime(pose.forward.y, t + 0.05);
+    listener.forwardZ.linearRampToValueAtTime(pose.forward.z, t + 0.05);
     listener.upX.linearRampToValueAtTime(up.x, t + 0.05);
     listener.upY.linearRampToValueAtTime(up.y, t + 0.05);
     listener.upZ.linearRampToValueAtTime(up.z, t + 0.05);
@@ -709,7 +822,7 @@ function updateBubbles(now) {
 
   state.bubbles.forEach((bubble) => {
     if (bubble.stuck) {
-      bubble.group.position.copy(pose.position).add(pose.forward.clone().multiplyScalar(bubble.stuckDistance));
+      bubble.group.position.copy(pose.position).addScaledVector(pose.forward, bubble.stuckDistance);
       bubble.baseY = bubble.group.position.y;
     }
 
@@ -725,17 +838,16 @@ function updateBubbles(now) {
     const distance = bubble.group.position.distanceTo(pose.position);
     bubble.targetGain = distance < bubble.range ? Math.pow(1 - distance / bubble.range, 2) * bubble.gainMax : 0;
     bubble.currentGain += (bubble.targetGain - bubble.currentGain) * 0.08;
-
     if (bubble.fadeOut) {
       bubble.currentGain *= 0.78;
     }
 
-    if (bubble.audio?.gainNode?.gain) {
-      bubble.audio.gainNode.gain.linearRampToValueAtTime(bubble.currentGain, state.audioContext.currentTime + 0.05);
-      bubble.audio.panner.positionX.linearRampToValueAtTime(bubble.group.position.x, state.audioContext.currentTime + 0.05);
-      bubble.audio.panner.positionY.linearRampToValueAtTime(bubble.group.position.y, state.audioContext.currentTime + 0.05);
-      bubble.audio.panner.positionZ.linearRampToValueAtTime(bubble.group.position.z, state.audioContext.currentTime + 0.05);
-    }
+    if (!state.audioContext) return;
+    const t = state.audioContext.currentTime + 0.05;
+    bubble.audio.gainNode.gain.linearRampToValueAtTime(bubble.currentGain, t);
+    bubble.audio.panner.positionX.linearRampToValueAtTime(bubble.group.position.x, t);
+    bubble.audio.panner.positionY.linearRampToValueAtTime(bubble.group.position.y, t);
+    bubble.audio.panner.positionZ.linearRampToValueAtTime(bubble.group.position.z, t);
   });
 }
 
