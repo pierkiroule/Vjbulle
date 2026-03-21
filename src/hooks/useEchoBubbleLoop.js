@@ -697,7 +697,7 @@ export function useEchoBubbleLoop() {
     if (!isSessionActive) {
       return 'Entre en AR puis tape un pad.';
     }
-    return 'Pad = souffler · tap bulle = coller · appui long = pop.';
+    return 'Pad = souffler · panneau = éditer · tap bulle = coller.';
   }, [availabilityMessage, isArSupported, isSessionActive, pads]);
 
   useEffect(() => {
@@ -892,6 +892,8 @@ export function useEchoBubbleLoop() {
     handleImportedFiles,
     toggleMicRecording,
     placeBubbleFromPad,
+    toggleBubbleAttachment,
+    popBubble,
     clearAllBubbles,
     setPendingPadId,
   };
