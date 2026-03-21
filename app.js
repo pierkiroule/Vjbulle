@@ -11,6 +11,7 @@ const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
 
 const dom = {
   xrRoot: document.querySelector('#xr-root'),
+  topBar: document.querySelector('#top-bar'),
   enterAr: document.querySelector('#enter-ar'),
   configToggle: document.querySelector('#config-toggle'),
   configPanel: document.querySelector('#config-panel'),
@@ -22,6 +23,7 @@ const dom = {
   importAudio: document.querySelector('#import-audio'),
   clearPads: document.querySelector('#clear-pads'),
   clearBubbles: document.querySelector('#clear-bubbles'),
+  bubbleToggle: document.querySelector('#bubble-toggle'),
   bubblePanel: document.querySelector('#bubble-panel'),
   bubbleTitle: document.querySelector('#bubble-title'),
   bubbleStick: document.querySelector('#bubble-stick'),
@@ -29,6 +31,7 @@ const dom = {
   rangeValue: document.querySelector('#range-value'),
   gainSlider: document.querySelector('#gain-slider'),
   gainValue: document.querySelector('#gain-value'),
+  sourceToggle: document.querySelector('#source-toggle'),
   sourceSheet: document.querySelector('#source-sheet'),
   sourceTitle: document.querySelector('#source-title'),
   closeSource: document.querySelector('#close-source'),
@@ -36,6 +39,9 @@ const dom = {
   sourceRecord: document.querySelector('#source-record'),
   recordingNote: document.querySelector('#recording-note'),
   padCarousel: document.querySelector('#pad-carousel'),
+  bottomDock: document.querySelector('#bottom-dock'),
+  dockToggle: document.querySelector('#dock-toggle'),
+  dockBody: document.querySelector('#dock-body'),
   undoBtn: document.querySelector('#undo-btn'),
   fileInput: document.querySelector('#file-input'),
 };
@@ -71,6 +77,12 @@ const state = {
   arSupported: false,
   sessionUsesDomOverlay: false,
   bufferCache: new Map(),
+  ui: {
+    configOpen: false,
+    sourceOpen: false,
+    bubbleOpen: false,
+    dockOpen: false,
+  },
 };
 
 bootstrap();
@@ -80,6 +92,7 @@ async function bootstrap() {
   loadPads();
   renderPads();
   syncTempoUi();
+  syncOverlayUi();
   bindUi();
   await checkArSupport();
   state.renderer.setAnimationLoop(renderFrame);
@@ -110,7 +123,7 @@ function setupThree() {
 
 function bindUi() {
   dom.enterAr.addEventListener('click', startArSession);
-  dom.configToggle.addEventListener('click', () => dom.configPanel.classList.toggle('hidden'));
+  dom.configToggle.addEventListener('click', () => togglePanel('config'));
   dom.importAudio.addEventListener('click', () => {
     state.sourcePadIndex = null;
     dom.fileInput.click();
@@ -118,16 +131,70 @@ function bindUi() {
   dom.clearPads.addEventListener('click', clearPads);
   dom.clearBubbles.addEventListener('click', clearBubbles);
   dom.undoBtn.addEventListener('click', undoLastBubble);
+  dom.dockToggle.addEventListener('click', () => togglePanel('dock'));
+  dom.sourceToggle.addEventListener('click', () => togglePanel('source'));
+  dom.bubbleToggle.addEventListener('click', () => togglePanel('bubble'));
   dom.bubbleStick.addEventListener('click', toggleSelectedStickiness);
   dom.rangeSlider.addEventListener('input', updateSelectedBubbleUi);
   dom.gainSlider.addEventListener('input', updateSelectedBubbleUi);
-  dom.closeSource.addEventListener('click', closeSourceSheet);
+  dom.closeSource.addEventListener('click', minimizeSourceSheet);
   dom.sourceImport.addEventListener('click', () => dom.fileInput.click());
   dom.sourceRecord.addEventListener('click', toggleRecording);
   dom.fileInput.addEventListener('change', onFilePicked);
 
   const canRecord = Boolean(window.MediaRecorder && navigator.mediaDevices?.getUserMedia && AudioContextCtor);
   dom.sourceRecord.disabled = !canRecord;
+}
+
+function togglePanel(panel) {
+  if (panel === 'config') {
+    const next = !state.ui.configOpen;
+    state.ui.configOpen = next;
+    if (next) {
+      state.ui.sourceOpen = false;
+      state.ui.bubbleOpen = false;
+    }
+  }
+
+  if (panel === 'source' && state.sourcePadIndex !== null) {
+    const next = !state.ui.sourceOpen;
+    state.ui.sourceOpen = next;
+    if (next) {
+      state.ui.configOpen = false;
+      state.ui.bubbleOpen = false;
+    }
+  }
+
+  if (panel === 'bubble' && state.selectedBubbleId) {
+    const next = !state.ui.bubbleOpen;
+    state.ui.bubbleOpen = next;
+    if (next) {
+      state.ui.configOpen = false;
+      state.ui.sourceOpen = false;
+    }
+  }
+
+  if (panel === 'dock') {
+    state.ui.dockOpen = !state.ui.dockOpen;
+  }
+
+  syncOverlayUi();
+}
+
+function syncOverlayUi() {
+  dom.configPanel.classList.toggle('hidden', !state.ui.configOpen);
+
+  const hasSourceContext = state.sourcePadIndex !== null;
+  dom.sourceToggle.classList.toggle('hidden', !hasSourceContext);
+  dom.sourceSheet.classList.toggle('hidden', !(hasSourceContext && state.ui.sourceOpen));
+
+  const hasBubbleContext = Boolean(state.selectedBubbleId);
+  dom.bubbleToggle.classList.toggle('hidden', !hasBubbleContext);
+  dom.bubblePanel.classList.toggle('hidden', !(hasBubbleContext && state.ui.bubbleOpen));
+
+  dom.bottomDock.classList.toggle('is-collapsed', !state.ui.dockOpen);
+  dom.dockBody.classList.toggle('hidden', !state.ui.dockOpen);
+  dom.dockToggle.textContent = state.ui.dockOpen ? 'Hide pads' : 'Pads';
 }
 
 function createEmptyPad(index) {
@@ -216,16 +283,25 @@ function handlePadTap(index) {
 
 function openSourceSheet(index, replacing) {
   state.sourcePadIndex = index;
+  state.ui.sourceOpen = true;
+  state.ui.configOpen = false;
+  state.ui.bubbleOpen = false;
   dom.sourceTitle.textContent = replacing ? `Replace ${state.pads[index].name}` : `Load Pad ${index + 1}`;
-  dom.sourceSheet.classList.remove('hidden');
+  syncOverlayUi();
   renderPads();
+}
+
+function minimizeSourceSheet() {
+  state.ui.sourceOpen = false;
+  syncOverlayUi();
 }
 
 function closeSourceSheet() {
   state.sourcePadIndex = null;
-  dom.sourceSheet.classList.add('hidden');
+  state.ui.sourceOpen = false;
   dom.recordingNote.classList.add('hidden');
   dom.sourceRecord.textContent = 'Record mic';
+  syncOverlayUi();
   renderPads();
 }
 
@@ -248,6 +324,8 @@ async function onFilePicked(event) {
     closeSourceSheet();
     renderPads();
     setStatus(`${pad.name} is ready. Tap the pad to place a bubble.`);
+    state.ui.dockOpen = true;
+    syncOverlayUi();
   } catch (error) {
     console.error(error);
     setStatus('Audio import failed on this device.');
@@ -513,6 +591,9 @@ async function attachSession(session) {
   await ensureAudio();
 
   dom.enterAr.textContent = 'Exit AR';
+  document.body.classList.add('is-ar-active');
+  state.ui.dockOpen = false;
+  syncOverlayUi();
   if (!state.sessionUsesDomOverlay) {
     setStatus('AR started. Device DOM overlay is unavailable, so UI may be limited inside the session.');
   }
@@ -527,6 +608,7 @@ function onSessionEnd(event) {
   state.xrSession = null;
   state.lastXRFrame = null;
   state.sessionUsesDomOverlay = false;
+  document.body.classList.remove('is-ar-active');
   dom.enterAr.textContent = 'Enter AR';
   window.clearTimeout(state.longPressTimer);
   setStatus('AR session ended. Re-enter to sculpt more sound.');
@@ -554,7 +636,8 @@ function selectBubble(bubbleId) {
   state.selectedBubbleId = bubbleId;
   const bubble = state.bubbles.find((item) => item.id === bubbleId);
   if (!bubble) {
-    dom.bubblePanel.classList.add('hidden');
+    state.ui.bubbleOpen = false;
+    syncOverlayUi();
     state.bubbles.forEach((item) => {
       item.mesh.material.emissiveIntensity = 0.6;
       item.aura.material.opacity = 0.05;
@@ -562,7 +645,10 @@ function selectBubble(bubbleId) {
     return;
   }
 
-  dom.bubblePanel.classList.remove('hidden');
+  state.ui.bubbleOpen = true;
+  state.ui.configOpen = false;
+  state.ui.sourceOpen = false;
+  syncOverlayUi();
   dom.bubbleTitle.textContent = bubble.name;
   dom.bubbleStick.textContent = bubble.stuck ? 'Décoller' : 'Coller';
   dom.rangeSlider.value = String(bubble.range);
@@ -653,6 +739,8 @@ async function finishRecording() {
     closeSourceSheet();
     renderPads();
     setStatus(`${pad.name} captured and ready.`);
+    state.ui.dockOpen = true;
+    syncOverlayUi();
   } catch (error) {
     console.error(error);
     setStatus('Recorded audio could not be decoded on this device.');
@@ -677,6 +765,7 @@ function clearPads() {
   closeSourceSheet();
   renderPads();
   setStatus('All pads cleared.');
+  syncOverlayUi();
 }
 
 function clearBubbles() {
@@ -685,6 +774,7 @@ function clearBubbles() {
   selectBubble(null);
   syncBubbleCount();
   setStatus('All active bubbles are fading out.');
+  syncOverlayUi();
 }
 
 function undoLastBubble() {
@@ -729,6 +819,7 @@ function fadeOutAndRemoveBubble(bubble) {
       selectBubble(null);
     }
     syncBubbleCount();
+    syncOverlayUi();
   }, 260);
 }
 

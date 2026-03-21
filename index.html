@@ -17,8 +17,8 @@
     <div id="xr-root"></div>
 
     <div id="overlay" class="overlay">
-      <header class="top-bar glass">
-        <div>
+      <header id="top-bar" class="top-bar glass">
+        <div class="brand-copy">
           <div class="eyebrow">EchoBubbleLoop</div>
           <h1>Spatial AR looper</h1>
           <p class="subtle">Sculpt living sound bubbles around you in real space.</p>
@@ -38,7 +38,7 @@
         <span id="tempo-text">90 BPM</span>
       </section>
 
-      <aside id="config-panel" class="config-panel glass hidden">
+      <aside id="config-panel" class="floating-panel config-panel glass hidden">
         <div class="panel-head">
           <div>
             <div class="eyebrow">Config</div>
@@ -61,7 +61,24 @@
         </div>
       </aside>
 
-      <section id="bubble-panel" class="bubble-panel glass hidden">
+      <button id="source-toggle" class="panel-toggle glass hidden" aria-label="Toggle pad source panel">＋</button>
+      <section id="source-sheet" class="floating-panel source-sheet glass hidden">
+        <div class="panel-head tight">
+          <div>
+            <div class="eyebrow">Pad source</div>
+            <h2 id="source-title">Load pad</h2>
+          </div>
+          <button id="close-source" class="ghost-btn">Minimize</button>
+        </div>
+        <div class="source-actions">
+          <button id="source-import" class="ghost-btn wide">Import file</button>
+          <button id="source-record" class="ghost-btn wide">Record mic</button>
+        </div>
+        <div id="recording-note" class="panel-note hidden">Recording… tap stop when the loop feels right.</div>
+      </section>
+
+      <button id="bubble-toggle" class="panel-toggle glass hidden" aria-label="Toggle bubble panel">◌</button>
+      <section id="bubble-panel" class="floating-panel bubble-panel glass hidden">
         <div class="panel-head tight">
           <div>
             <div class="eyebrow">Bubble</div>
@@ -85,28 +102,16 @@
         <div class="panel-note">Tap a bubble to edit it. Long press the selected bubble to pop it.</div>
       </section>
 
-      <section id="source-sheet" class="source-sheet glass hidden">
-        <div class="panel-head tight">
-          <div>
-            <div class="eyebrow">Pad source</div>
-            <h2 id="source-title">Load pad</h2>
-          </div>
-          <button id="close-source" class="ghost-btn">Close</button>
-        </div>
-        <div class="source-actions">
-          <button id="source-import" class="ghost-btn wide">Import file</button>
-          <button id="source-record" class="ghost-btn wide">Record mic</button>
-        </div>
-        <div id="recording-note" class="panel-note hidden">Recording… tap stop when the loop feels right.</div>
-      </section>
-
-      <footer class="bottom-dock glass">
-        <div class="pad-carousel-wrap">
-          <div id="pad-carousel" class="pad-carousel"></div>
-        </div>
-        <div class="dock-actions">
+      <footer id="bottom-dock" class="bottom-dock glass is-collapsed">
+        <div class="dock-head">
+          <button id="dock-toggle" class="dock-toggle">Pads</button>
+          <div class="dock-note">Fast access to samples without blocking the AR view.</div>
           <button id="undo-btn" class="ghost-btn">Undo</button>
-          <div class="dock-note">Tap filled pads to place bubbles 0.4 m ahead.</div>
+        </div>
+        <div id="dock-body" class="dock-body hidden">
+          <div class="pad-carousel-wrap">
+            <div id="pad-carousel" class="pad-carousel"></div>
+          </div>
         </div>
       </footer>
     </div>
