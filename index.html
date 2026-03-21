@@ -17,6 +17,8 @@
     <div id="xr-root"></div>
 
     <div id="overlay" class="overlay">
+      <div id="ar-crosshair" class="ar-crosshair hidden" aria-hidden="true"></div>
+
       <header id="top-bar" class="top-bar glass">
         <div class="brand-copy">
           <div class="eyebrow">EchoBubbleLoop</div>
@@ -61,6 +63,8 @@
         </div>
       </aside>
 
+      <button id="create-btn" class="ar-create-btn glass hidden" aria-label="Create bubble">＋</button>
+
       <button id="source-toggle" class="panel-toggle glass hidden" aria-label="Toggle pad source panel">＋</button>
       <section id="source-sheet" class="floating-panel source-sheet glass hidden">
         <div class="panel-head tight">
@@ -78,7 +82,7 @@
       </section>
 
       <button id="bubble-toggle" class="panel-toggle glass hidden" aria-label="Toggle bubble panel">◌</button>
-      <section id="bubble-panel" class="floating-panel bubble-panel glass hidden">
+      <section id="bubble-panel" class="floating-panel bubble-panel glass hidden" aria-live="polite">
         <div class="panel-head tight">
           <div>
             <div class="eyebrow">Bubble</div>
@@ -99,7 +103,9 @@
           <strong id="gain-value">0.80</strong>
         </label>
 
-        <div class="panel-note">Tap a bubble to edit it. Long press the selected bubble to pop it.</div>
+        <div class="bubble-actions">
+          <button id="bubble-delete" class="ghost-btn wide">Delete</button>
+        </div>
       </section>
 
       <footer id="bottom-dock" class="bottom-dock glass is-collapsed">
