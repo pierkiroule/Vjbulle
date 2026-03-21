@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { useEchoBubbleLoop } from './hooks/useEchoBubbleLoop';
 
 function formatPadMeta(pad) {
@@ -12,7 +12,6 @@ function formatPadMeta(pad) {
 function App() {
   const fileInputRef = useRef(null);
   const longPressRef = useRef({ timer: 0, padId: '', handled: false });
-  const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
   const {
     sceneHostRef,
     overlayRootRef,
@@ -42,13 +41,6 @@ function App() {
   } = useEchoBubbleLoop();
 
   const filledPadIds = useMemo(() => new Set(pads.filter((pad) => pad.buffer).map((pad) => pad.id)), [pads]);
-  const hasToolsContent = Boolean(pendingPadId || bubbleCount);
-
-  useEffect(() => {
-    if (hasToolsContent) {
-      setIsToolsMenuOpen(true);
-    }
-  }, [hasToolsContent]);
 
   const handleFileChange = async (event) => {
     const files = Array.from(event.target.files ?? []);
@@ -98,149 +90,145 @@ function App() {
 
       <div ref={overlayRootRef} className="dom-overlay-root">
         <div className={`overlay-root ${isSessionActive ? 'is-ar' : ''}`}>
-          <div className="top-hud top-hud--minimal">
-            <div className="glass-pill hud-status hud-status--compact">
-              <div>
-                <span className="hud-label">AR Bubble Looper</span>
-                <strong>{bpm} BPM · {bubbleCount}/8 bulles</strong>
-              </div>
-            </div>
-
-            <div className="hud-actions">
-              {!!bubbleCount && (
-                <button type="button" className="action-button" onClick={() => clearAllBubbles(true)}>
-                  Vider
-                </button>
-              )}
-              <button type="button" className="primary-button" onClick={enterAr} disabled={isBusy || (!isArSupported && !isSessionActive)}>
-                {isSessionActive ? 'Quitter AR' : isBusy ? 'Starting…' : 'Entrer AR'}
-              </button>
-            </div>
-          </div>
-
-          <div className="panel-stack" aria-live="polite">
-            {!isArSupported && !isSessionActive && (
-              <div className="glass-pill availability-banner availability-banner--inline">
-                {availabilityMessage}
-              </div>
-            )}
-
-            <div className={`glass-sheet tools-accordion ${isToolsMenuOpen ? 'is-open' : ''}`}>
-              <button
-                type="button"
-                className="tools-accordion__toggle"
-                onClick={() => setIsToolsMenuOpen((current) => !current)}
-                aria-expanded={isToolsMenuOpen}
-                aria-controls="tools-accordion-panel"
-              >
+          <div className="bottom-dock" aria-live="polite">
+            <div className="control-carousel" role="list" aria-label="Contrôles AR Bubble Looper">
+              <section className="glass-sheet control-card control-card--status" role="listitem" aria-label="Statut de session">
                 <div>
-                  <span className="hud-label">Outils</span>
-                  <strong>{hasToolsContent ? 'Import, micro et gestion des bulles' : 'Aucun outil actif pour le moment'}</strong>
+                  <span className="hud-label">Session</span>
+                  <strong>AR Bubble Looper</strong>
+                  <p className="control-card__lead">{bpm} BPM · {bubbleCount}/8 bulles</p>
                 </div>
-                <span className="tools-accordion__chevron" aria-hidden="true">▾</span>
-              </button>
 
-              {isToolsMenuOpen && (
-                <div id="tools-accordion-panel" className="tools-accordion__panel">
-                  {!!pendingPadId && (
-                    <div className="tools-accordion__section source-sheet source-sheet--inline source-sheet--compact">
-                      <div className="sheet-head">
-                        <div>
-                          <span className="hud-label">Pad {pendingPadId.split('-').at(-1)}</span>
-                          <strong>{filledPadIds.has(pendingPadId) ? 'Remplacer le sample' : 'Ajouter un sample'}</strong>
-                        </div>
-                        <button type="button" className="icon-button" onClick={() => setPendingPadId('')} disabled={isRecordingMic} aria-label="Fermer l’édition du pad">
-                          ✕
-                        </button>
-                      </div>
-                      <div className="mini-menu__actions">
-                        <button
-                          type="button"
-                          className="action-button"
-                          onClick={() => openFilePickerForPad(pendingPadId, fileInputRef.current)}
-                        >
-                          Import
-                        </button>
-                        <button
-                          type="button"
-                          className={`action-button ${isRecordingMic ? 'action-button--danger' : ''}`}
-                          onClick={() => toggleMicRecording(pendingPadId)}
-                        >
-                          {isRecordingMic ? 'Stop mic' : 'Micro'}
-                        </button>
-                      </div>
+                <div className="control-card__content">
+                  <div className="glass-pill compact-instructions compact-instructions--inline compact-instructions--minimal">
+                    <strong>{readiness}</strong>
+                  </div>
+
+                  {!isArSupported && !isSessionActive && (
+                    <div className="glass-pill availability-banner availability-banner--inline">
+                      {availabilityMessage}
                     </div>
                   )}
+                </div>
 
+                <div className="control-card__actions">
                   {!!bubbleCount && (
-                    <div className="tools-accordion__section bubble-sheet">
-                      <div className="sheet-head">
-                        <div>
-                          <span className="hud-label">Bulles actives</span>
-                          <strong>{bubbleCount} loop{bubbleCount > 1 ? 's' : ''} dans l’espace</strong>
-                        </div>
-                        <button type="button" className="action-button action-button--ghost" onClick={() => clearAllBubbles(true)}>
-                          Tout vider
-                        </button>
-                      </div>
-
-                      <div className="bubble-list" role="list" aria-label="Bulles audio">
-                        {placedBubbles.map((bubble) => (
-                          <div key={bubble.id} className="bubble-row" role="listitem">
-                            <div className="bubble-row__copy">
-                              <strong>{bubble.label}</strong>
-                              <span>{bubble.attached ? 'Collée à la caméra' : 'Libre dans la scène'}</span>
-                            </div>
-
-                            <button
-                              type="button"
-                              className="action-button action-button--ghost"
-                              onClick={() => toggleBubbleAttachment(bubble.id)}
-                            >
-                              {bubble.attached ? 'Décoller' : 'Coller'}
-                            </button>
-
-                            <button
-                              type="button"
-                              className="action-button action-button--danger"
-                              onClick={() => popBubble(bubble.id)}
-                            >
-                              Supprimer
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    <button type="button" className="action-button" onClick={() => clearAllBubbles(true)}>
+                      Vider
+                    </button>
                   )}
+                  <button type="button" className="primary-button" onClick={enterAr} disabled={isBusy || (!isArSupported && !isSessionActive)}>
+                    {isSessionActive ? 'Quitter AR' : isBusy ? 'Starting…' : 'Entrer AR'}
+                  </button>
+                </div>
+              </section>
 
-                  {!hasToolsContent && (
-                    <div className="tools-accordion__empty">
-                      Sélectionne un pad pour importer un sample, ou place une bulle pour afficher ses actions ici.
-                    </div>
+              <section className="glass-sheet control-card" role="listitem" aria-label="Outils du pad">
+                <div className="sheet-head">
+                  <div>
+                    <span className="hud-label">Outils</span>
+                    <strong>{pendingPadId ? `Pad ${pendingPadId.split('-').at(-1)}` : 'Import / micro'}</strong>
+                  </div>
+                  {!!pendingPadId && (
+                    <button type="button" className="icon-button" onClick={() => setPendingPadId('')} disabled={isRecordingMic} aria-label="Fermer l’édition du pad">
+                      ✕
+                    </button>
                   )}
                 </div>
-              )}
-            </div>
-          </div>
 
-          <div className="bottom-hud bottom-hud--minimal">
-            <div className="glass-pill compact-instructions compact-instructions--inline compact-instructions--minimal">
-              <strong>{readiness}</strong>
-            </div>
+                {pendingPadId ? (
+                  <>
+                    <div className="control-card__content">
+                      <p className="control-card__lead">
+                        {filledPadIds.has(pendingPadId) ? 'Remplacer le sample sélectionné.' : 'Ajouter un sample à ce pad.'}
+                      </p>
+                    </div>
 
-            <div className="pad-carousel" role="list" aria-label="Pads audio">
+                    <div className="control-card__actions">
+                      <button
+                        type="button"
+                        className="action-button"
+                        onClick={() => openFilePickerForPad(pendingPadId, fileInputRef.current)}
+                      >
+                        Import
+                      </button>
+                      <button
+                        type="button"
+                        className={`action-button ${isRecordingMic ? 'action-button--danger' : ''}`}
+                        onClick={() => toggleMicRecording(pendingPadId)}
+                      >
+                        {isRecordingMic ? 'Stop mic' : 'Micro'}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="control-card__empty">
+                    Maintiens un pad pour ouvrir ses outils d’import ou d’enregistrement micro.
+                  </div>
+                )}
+              </section>
+
+              <section className="glass-sheet control-card" role="listitem" aria-label="Gestion des bulles">
+                <div className="sheet-head">
+                  <div>
+                    <span className="hud-label">Bulles</span>
+                    <strong>{bubbleCount ? `${bubbleCount} loop${bubbleCount > 1 ? 's' : ''} actif${bubbleCount > 1 ? 's' : ''}` : 'Aucune bulle active'}</strong>
+                  </div>
+                  {!!bubbleCount && (
+                    <button type="button" className="action-button action-button--ghost" onClick={() => clearAllBubbles(true)}>
+                      Tout vider
+                    </button>
+                  )}
+                </div>
+
+                {!!bubbleCount ? (
+                  <div className="bubble-list" role="list" aria-label="Bulles audio">
+                    {placedBubbles.map((bubble) => (
+                      <div key={bubble.id} className="bubble-row" role="listitem">
+                        <div className="bubble-row__copy">
+                          <strong>{bubble.label}</strong>
+                          <span>{bubble.attached ? 'Collée à la caméra' : 'Libre dans la scène'}</span>
+                        </div>
+
+                        <div className="bubble-row__actions">
+                          <button
+                            type="button"
+                            className="action-button action-button--ghost"
+                            onClick={() => toggleBubbleAttachment(bubble.id)}
+                          >
+                            {bubble.attached ? 'Décoller' : 'Coller'}
+                          </button>
+
+                          <button
+                            type="button"
+                            className="action-button action-button--danger"
+                            onClick={() => popBubble(bubble.id)}
+                          >
+                            Supprimer
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="control-card__empty">
+                    Place une bulle depuis un pad rempli pour afficher ses actions ici.
+                  </div>
+                )}
+              </section>
+
               {pads.map((pad) => (
                 <button
                   key={pad.id}
                   type="button"
                   role="listitem"
-                  className={`pad-card ${pad.buffer ? 'is-filled' : 'is-empty'} ${pendingPadId === pad.id ? 'is-pending' : ''}`}
+                  className={`control-card pad-card ${pad.buffer ? 'is-filled' : 'is-empty'} ${pendingPadId === pad.id ? 'is-pending' : ''}`}
                   onPointerDown={() => handlePadPointerDown(pad)}
                   onPointerUp={handlePadPointerUp}
                   onPointerLeave={handlePadPointerUp}
                   onClick={() => handlePadClick(pad)}
                 >
-                  <span className="pad-card__index">Pad {pad.label}</span>
+                  <span className="hud-label">Pad {pad.label}</span>
                   <strong>{pad.name || 'Empty'}</strong>
                   <span className="pad-card__meta">{formatPadMeta(pad)}</span>
                 </button>
