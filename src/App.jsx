@@ -44,7 +44,6 @@ function App() {
   } = useEchoBubbleLoop();
 
   const filledPadIds = useMemo(() => new Set(pads.filter((pad) => pad.buffer).map((pad) => pad.id)), [pads]);
-  const readyToEnterAr = activePadCount > 0 && (isArSupported || isSessionActive);
 
   const handleFileChange = async (event) => {
     const files = Array.from(event.target.files ?? []);
@@ -75,7 +74,7 @@ function App() {
     };
   };
 
-  const clearLongPress = () => {
+  const handlePadPointerUp = () => {
     window.clearTimeout(longPressRef.current.timer);
   };
 
@@ -92,17 +91,14 @@ function App() {
     <div className="app-shell" onPointerDown={pingHud}>
       <div ref={sceneHostRef} className="scene-host" aria-hidden="true" />
 
-      <div ref={overlayRootRef} className={`overlay-root ${isSessionActive ? 'is-ar' : 'is-lobby'} ${isHudVisible ? 'is-visible' : 'is-hidden'}`}>
-        <header className="top-hud">
-          <div className="glass-pill hero-status">
+      <div ref={overlayRootRef} className={`overlay-root ${isSessionActive ? 'is-ar' : ''} ${isHudVisible ? 'is-visible' : 'is-hidden'}`}>
+        <div className="top-hud">
+          <div className="glass-pill hud-status">
             <div>
-              <span className="hud-label">AR Audio Looper</span>
-              <strong>Bubble blower instrument</strong>
+              <span className="hud-label">Looper AR</span>
+              <strong>{bpm} BPM · {beatDuration.toFixed(3)}s / beat</strong>
             </div>
-            <div className="hero-status__metrics">
-              <span className="hud-chip">{bpm} BPM</span>
-              <span className="hud-chip">{bubbleCount}/8 bulles</span>
-            </div>
+            <span className="hud-chip">{bubbleCount}/8 bulles</span>
           </div>
 
           <div className="hud-actions">
@@ -113,41 +109,7 @@ function App() {
               {isSessionActive ? 'Quitter AR' : isBusy ? 'Starting…' : 'Entrer AR'}
             </button>
           </div>
-        </header>
-
-        {!isSessionActive && (
-          <section className="center-stage">
-            <div className="glass-stage stage-panel">
-              <span className="hud-label">Expérience</span>
-              <h1>Charge un sample. Tape un pad. Souffle une bulle sur le beat.</h1>
-              <p>
-                L’app est maintenant un instrument minimal : aucun éditeur, pas de menu complexe, seulement des pads,
-                des bulles et une synchro globale à {bpm} BPM.
-              </p>
-              <div className="stage-panel__actions">
-                <button type="button" className="primary-button" onClick={enterAr} disabled={!readyToEnterAr || isBusy}>
-                  {isBusy ? 'Starting…' : 'Lancer la session AR'}
-                </button>
-                <span className="stage-panel__hint">Long press sur un pad rempli pour remplacer le sample.</span>
-              </div>
-            </div>
-
-            <div className="glass-stage stats-panel">
-              <div>
-                <span className="hud-label">Pads prêts</span>
-                <strong>{activePadCount}/8</strong>
-              </div>
-              <div>
-                <span className="hud-label">Horloge</span>
-                <strong>{beatDuration.toFixed(3)} s / beat</strong>
-              </div>
-              <div>
-                <span className="hud-label">Flow</span>
-                <strong>Tap pad → next beat → bubble</strong>
-              </div>
-            </div>
-          </section>
-        )}
+        </div>
 
         {menuOpen && (
           <div className="glass-sheet mini-menu">
@@ -197,12 +159,9 @@ function App() {
           </div>
         )}
 
-        <footer className="bottom-hud">
+        <div className="bottom-hud">
           <div className="glass-sheet compact-instructions">
-            <div className="compact-instructions__topline">
-              <strong>{activePadCount}/8 pads prêts</strong>
-              <span className="session-state">{isSessionActive ? 'Session AR live' : 'Prépare tes pads'}</span>
-            </div>
+            <strong>{activePadCount}/8 pads prêts</strong>
             <p>{readiness}</p>
             {!!placedBubbles.length && (
               <div className="bubble-inline-list">
@@ -215,31 +174,25 @@ function App() {
             )}
           </div>
 
-          <div className="pad-dock">
-            <div className="pad-dock__header">
-              <span className="hud-label">Pads</span>
-              <strong>Tap = jouer / Long press = remplacer</strong>
-            </div>
-            <div className="pad-carousel" role="list" aria-label="Pads audio">
-              {pads.map((pad) => (
-                <button
-                  key={pad.id}
-                  type="button"
-                  role="listitem"
-                  className={`pad-card ${pad.buffer ? 'is-filled' : 'is-empty'} ${pendingPadId === pad.id ? 'is-pending' : ''}`}
-                  onPointerDown={() => handlePadPointerDown(pad)}
-                  onPointerUp={clearLongPress}
-                  onPointerLeave={clearLongPress}
-                  onClick={() => handlePadClick(pad)}
-                >
-                  <span className="pad-card__index">Pad {pad.label}</span>
-                  <strong>{pad.name || 'Empty'}</strong>
-                  <span className="pad-card__meta">{formatPadMeta(pad)}</span>
-                </button>
-              ))}
-            </div>
+          <div className="pad-carousel" role="list" aria-label="Pads audio">
+            {pads.map((pad) => (
+              <button
+                key={pad.id}
+                type="button"
+                role="listitem"
+                className={`pad-card ${pad.buffer ? 'is-filled' : 'is-empty'} ${pendingPadId === pad.id ? 'is-pending' : ''}`}
+                onPointerDown={() => handlePadPointerDown(pad)}
+                onPointerUp={handlePadPointerUp}
+                onPointerLeave={handlePadPointerUp}
+                onClick={() => handlePadClick(pad)}
+              >
+                <span className="pad-card__index">Pad {pad.label}</span>
+                <strong>{pad.name || 'Empty'}</strong>
+                <span className="pad-card__meta">{formatPadMeta(pad)}</span>
+              </button>
+            ))}
           </div>
-        </footer>
+        </div>
 
         <div className="toast-stack" aria-live="polite" aria-atomic="true">
           {toasts.map((toast) => (
