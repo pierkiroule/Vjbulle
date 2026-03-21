@@ -1,19 +1,12 @@
 import { useRef } from 'react';
 import { useEchoBubbleLoop } from './hooks/useEchoBubbleLoop';
 
-function getModeLabel(isListeningMode) {
-  return isListeningMode ? 'Écoute' : 'Composition';
-}
-
-function getDockLabel({ isSessionActive, isSetValidated, setBubbles, isListeningMode }) {
-  if (!isSessionActive) {
-    if (!setBubbles.length) {
-      return 'Préparer le set';
-    }
-    return isSetValidated ? 'Set validé · prêt pour AR' : 'Set à valider';
+function formatPadStatus(pad) {
+  if (!pad.assetId) {
+    return 'Source à connecter';
   }
 
-  return `AR · ${getModeLabel(isListeningMode)}`;
+  return `Loop ${pad.loopBars} mesures · ${pad.volume}% · portée ${pad.range} m`;
 }
 
 function App() {
@@ -27,13 +20,14 @@ function App() {
     setBubbles,
     selectedSetBubble,
     activeSetBubbleId,
-    isSetValidated,
-    isListeningMode,
+    readyPadCount,
     isArSupported,
     availabilityMessage,
     isSessionActive,
     bubbleCount,
     placedBubbles,
+    selectedPlacedBubble,
+    selectedPlacedBubbleId,
     toasts,
     isHudVisible,
     isMenuOpen,
@@ -41,24 +35,28 @@ function App() {
     isPlacementArmed,
     previewingId,
     readiness,
+    interactionMode,
+    isRecordingMic,
     enterAr,
     importAudioFiles,
     selectAsset,
     addSetBubble,
     updateSetBubble,
     removeSetBubble,
-    validateSet,
     setActiveSetBubbleId,
     playSetBubblePreview,
     stopPreview,
     togglePlacedBubbleAudio,
     armPlacement,
     cancelPlacement,
-    toggleMode,
+    setInteractionMode,
+    updatePlacedBubble,
+    setSelectedPlacedBubbleId,
     toggleMenu,
     dismissMenu,
     clearAllBubbles,
     pingHud,
+    toggleMicRecording,
   } = useEchoBubbleLoop();
 
   const handleFileChange = async (event) => {
@@ -72,9 +70,9 @@ function App() {
     fileInputRef.current?.click();
   };
 
-  const modeLabel = getModeLabel(isListeningMode);
-  const dockLabel = getDockLabel({ isSessionActive, isSetValidated, setBubbles, isListeningMode });
-  const canEnterAr = isSetValidated && (isArSupported || isSessionActive) && !isBusy;
+  const canEnterAr = readyPadCount > 0 && (isArSupported || isSessionActive) && !isBusy;
+  const selectedPlacedBubbleLabel = selectedPlacedBubble ? selectedPlacedBubble.label : 'Aucune bulle sélectionnée';
+  const isBlowerMode = interactionMode === 'blower';
 
   return (
     <div className="app-shell" onPointerDown={pingHud}>
@@ -82,20 +80,33 @@ function App() {
 
       <div ref={overlayRootRef} className={`overlay-root ${isSessionActive ? 'is-ar' : ''}`}>
         {!isSessionActive && (
-          <section className="hero-copy-block">
-            <div className="eyebrow">Spatial sound AR</div>
-            <h1>EchoBubbleLoop</h1>
+          <section className="hero-copy-block hero-copy-block--story">
+            <div className="eyebrow">AR looper bubble instrument</div>
+            <h1>VJ Bulle Loopscape</h1>
             <p>
-              Préparez d’abord un set léger et validé, puis passez en AR pour composer votre paysage sonore.
-              Vous pouvez revenir éditer le set à tout moment entre deux sessions.
+              Le flow tient maintenant en 3 gestes : capturer un son, le caler sur un pad looper,
+              puis le souffler dans l&apos;espace réel avec la caméra du téléphone.
             </p>
+            <div className="hero-pills">
+              <span>3 pads max</span>
+              <span>Mode éditeur avant AR</span>
+              <span>Souffleur + sticker en AR</span>
+            </div>
           </section>
         )}
 
         <div className={`bottom-dock ${isHudVisible ? 'is-visible' : 'is-dimmed'}`}>
           <button type="button" className="dock-handle" onClick={toggleMenu}>
-            <span className="dock-handle__meta">{isSessionActive ? 'Contrôles' : 'Préparation'}</span>
-            <strong>{dockLabel}</strong>
+            <span className="dock-handle__meta">{isSessionActive ? 'Session AR' : 'Préparation'}</span>
+            <strong>
+              {isSessionActive
+                ? isBlowerMode
+                  ? isPlacementArmed
+                    ? 'Souffleur armé · touchez la scène'
+                    : 'Mode souffleur'
+                  : 'Mode sticker'
+                : `${readyPadCount}/3 pads prêts à souffler`}
+            </strong>
           </button>
         </div>
 
@@ -106,228 +117,324 @@ function App() {
 
             <div className="sheet-header">
               <div>
-                <p className="sheet-kicker">{isSessionActive ? 'Expérience AR' : 'Préparation du set'}</p>
-                <h2>{isSessionActive ? 'Composer le paysage' : 'Définir le set'}</h2>
+                <p className="sheet-kicker">{isSessionActive ? 'Contrôle live' : 'Préparation rapide'}</p>
+                <h2>{isSessionActive ? 'Looper spatial' : 'Éditeur de pads'}</h2>
               </div>
             </div>
 
             <div className="sheet-scroll">
               <section className="sheet-card sheet-card--status">
-                <span className="card-label">État actuel</span>
-                <strong>
-                  {isSessionActive
-                    ? isPlacementArmed
-                      ? 'Pose en attente de confirmation'
-                      : modeLabel
-                    : isSetValidated
-                      ? 'Set validé et sauvegardé'
-                      : 'Set à préparer'}
-                </strong>
-                <p>{availabilityMessage || readiness}</p>
+                <span className="card-label">Flow courant</span>
+                <strong>{readiness}</strong>
+                <p>{availabilityMessage || 'Conservez un seul panneau, des actions directes et un chemin clair jusqu’au souffle.'}</p>
               </section>
 
-              <section className="sheet-card">
-                <div className="card-row">
-                  <span className="card-label">Bibliothèque audio</span>
-                  <strong>{audioLibrary.length} fichier(s)</strong>
-                </div>
-                <select
-                  value={selectedAssetId}
-                  onChange={(event) => selectAsset(event.target.value)}
-                  disabled={!audioLibrary.length}
-                >
-                  {!audioLibrary.length && <option value="">Importez des fichiers audio</option>}
-                  {audioLibrary.map((asset) => (
-                    <option key={asset.id} value={asset.id}>
-                      {asset.name}
-                    </option>
-                  ))}
-                </select>
-                <div className="sheet-actions">
-                  <button type="button" className="action-button" onClick={openFilePicker}>
-                    Importer audio
-                  </button>
-                  {selectedAsset && (
-                    <button type="button" className="action-button" onClick={() => stopPreview()}>
-                      Stop preview source
-                    </button>
-                  )}
-                </div>
-                <p>
-                  {selectedAsset
-                    ? `Source active : ${selectedAsset.name}. Utilisez-la pour créer rapidement une bulle de set.`
-                    : 'Commencez par importer vos sons de travail.'}
-                </p>
-              </section>
-
-              <section className="sheet-card">
-                <div className="card-row">
-                  <span className="card-label">Set de bulles</span>
-                  <strong>{setBubbles.length}/8 bulles</strong>
-                </div>
-                <div className="sheet-actions">
-                  <button type="button" className="action-button" onClick={addSetBubble} disabled={!audioLibrary.length || setBubbles.length >= 8}>
-                    Ajouter une bulle
-                  </button>
-                  <button type="button" className="action-button action-button--primary-ghost" onClick={validateSet} disabled={!setBubbles.length}>
-                    Valider & sauvegarder
-                  </button>
-                </div>
-                <p>
-                  Sans set défini, validé et sauvegardé, la phase de composition reste verrouillée pour alléger l’interface.
-                </p>
-              </section>
-
-              {setBubbles.map((bubble) => {
-                const bubbleAsset = audioLibrary.find((asset) => asset.id === bubble.assetId);
-                const isPreviewing = previewingId === bubble.id;
-                return (
-                  <section
-                    key={bubble.id}
-                    className={`sheet-card bubble-card ${activeSetBubbleId === bubble.id ? 'is-active' : ''}`}
-                  >
+              {!isSessionActive && (
+                <>
+                  <section className="sheet-card sheet-card--step">
                     <div className="card-row card-row--start">
-                      <label className="radio-chip">
-                        <input
-                          type="radio"
-                          name="active-set-bubble"
-                          checked={activeSetBubbleId === bubble.id}
-                          onChange={() => setActiveSetBubbleId(bubble.id)}
-                        />
-                        <span>{bubble.label}</span>
-                      </label>
-                      <strong>{bubbleAsset?.name || 'Source à définir'}</strong>
+                      <div>
+                        <span className="card-label">Étape 1 · Capturer une source</span>
+                        <strong>Importer un son ou enregistrer la voix</strong>
+                      </div>
+                      <span className="step-badge">Bibliothèque {audioLibrary.length}</span>
                     </div>
-
-                    <label className="field-stack">
-                      <span className="card-label">Source audio</span>
-                      <select
-                        value={bubble.assetId}
-                        onChange={(event) => updateSetBubble(bubble.id, { assetId: event.target.value })}
-                        disabled={!audioLibrary.length}
+                    <div className="sheet-actions">
+                      <button type="button" className="action-button" onClick={openFilePicker}>
+                        Importer depuis le tel
+                      </button>
+                      <button
+                        type="button"
+                        className={`action-button ${isRecordingMic ? 'action-button--danger' : 'action-button--primary-ghost'}`}
+                        onClick={toggleMicRecording}
                       >
-                        <option value="">Choisir une source</option>
-                        {audioLibrary.map((asset) => (
-                          <option key={asset.id} value={asset.id}>
-                            {asset.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <div className="range-grid">
-                      <label className="field-stack">
-                        <span className="card-label">Portée · {bubble.range} m</span>
-                        <input
-                          type="range"
-                          min="2"
-                          max="18"
-                          step="1"
-                          value={bubble.range}
-                          onChange={(event) => updateSetBubble(bubble.id, { range: Number(event.target.value) })}
-                        />
-                      </label>
-
-                      <label className="field-stack">
-                        <span className="card-label">Volume initial · {bubble.volume}%</span>
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          step="1"
-                          value={bubble.volume}
-                          onChange={(event) => updateSetBubble(bubble.id, { volume: Number(event.target.value) })}
-                        />
-                      </label>
+                        {isRecordingMic ? 'Stop record voix' : 'Record voix mic'}
+                      </button>
+                      {selectedAsset && (
+                        <button type="button" className="action-button" onClick={stopPreview}>
+                          Stop preview
+                        </button>
+                      )}
                     </div>
-
-                    <div className="sheet-actions sheet-actions--tight">
-                      <button type="button" className="action-button" onClick={() => playSetBubblePreview(bubble.id)} disabled={!bubble.assetId}>
-                        {isPreviewing ? 'Play en cours' : 'Play'}
-                      </button>
-                      <button type="button" className="action-button" onClick={stopPreview}>
-                        Stop
-                      </button>
-                      <button type="button" className="action-button action-button--danger" onClick={() => removeSetBubble(bubble.id)}>
-                        Supprimer
-                      </button>
-                    </div>
+                    <select
+                      value={selectedAssetId}
+                      onChange={(event) => selectAsset(event.target.value)}
+                      disabled={!audioLibrary.length}
+                    >
+                      {!audioLibrary.length && <option value="">Ajoutez d&apos;abord une source audio</option>}
+                      {audioLibrary.map((asset) => (
+                        <option key={asset.id} value={asset.id}>
+                          {asset.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p>
+                      {selectedAsset
+                        ? `Source active : ${selectedAsset.name}. Affectez-la à un pad pour la caler avant diffusion.`
+                        : 'Une seule librairie source, pas de détour : vous choisissez un son puis vous l’envoyez sur un pad.'}
+                    </p>
                   </section>
-                );
-              })}
+
+                  <section className="sheet-card sheet-card--step">
+                    <div className="card-row card-row--start">
+                      <div>
+                        <span className="card-label">Étape 2 · Sampler / looper</span>
+                        <strong>3 pads maximum pour garder le set lisible</strong>
+                      </div>
+                      <span className="step-badge">{readyPadCount}/3 prêts</span>
+                    </div>
+                    <div className="sheet-actions">
+                      <button
+                        type="button"
+                        className="action-button action-button--primary-ghost"
+                        onClick={addSetBubble}
+                        disabled={setBubbles.length >= 3}
+                      >
+                        Ajouter un pad
+                      </button>
+                    </div>
+                    <p>
+                      Chaque pad correspond à une loop soufflable. On retire l’étape de validation pour éviter la friction :
+                      dès qu’un pad a une source, il est prêt.
+                    </p>
+                  </section>
+
+                  {setBubbles.map((bubble) => {
+                    const isPreviewing = previewingId === bubble.id;
+                    return (
+                      <section
+                        key={bubble.id}
+                        className={`sheet-card bubble-card ${activeSetBubbleId === bubble.id ? 'is-active' : ''}`}
+                      >
+                        <div className="card-row card-row--start">
+                          <label className="radio-chip">
+                            <input
+                              type="radio"
+                              name="active-set-bubble"
+                              checked={activeSetBubbleId === bubble.id}
+                              onChange={() => setActiveSetBubbleId(bubble.id)}
+                            />
+                            <span>{bubble.label}</span>
+                          </label>
+                          <strong>{formatPadStatus(bubble)}</strong>
+                        </div>
+
+                        <label className="field-stack">
+                          <span className="card-label">Source du pad</span>
+                          <select
+                            value={bubble.assetId}
+                            onChange={(event) => updateSetBubble(bubble.id, { assetId: event.target.value })}
+                            disabled={!audioLibrary.length}
+                          >
+                            <option value="">Choisir une source</option>
+                            {audioLibrary.map((asset) => (
+                              <option key={asset.id} value={asset.id}>
+                                {asset.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <div className="range-grid range-grid--triple">
+                          <label className="field-stack">
+                            <span className="card-label">Sync</span>
+                            <select value={bubble.syncMode} onChange={(event) => updateSetBubble(bubble.id, { syncMode: event.target.value })}>
+                              <option value="Auto">Auto</option>
+                              <option value="Quantize 1 bar">Quantize 1 bar</option>
+                              <option value="Quantize 2 bars">Quantize 2 bars</option>
+                            </select>
+                          </label>
+
+                          <label className="field-stack">
+                            <span className="card-label">Longueur</span>
+                            <select value={bubble.loopBars} onChange={(event) => updateSetBubble(bubble.id, { loopBars: Number(event.target.value) })}>
+                              <option value="1">1 mesure</option>
+                              <option value="2">2 mesures</option>
+                              <option value="4">4 mesures</option>
+                              <option value="8">8 mesures</option>
+                            </select>
+                          </label>
+
+                          <label className="field-stack">
+                            <span className="card-label">Tempo cible</span>
+                            <input
+                              type="range"
+                              min="70"
+                              max="160"
+                              step="1"
+                              value={bubble.tempo}
+                              onChange={(event) => updateSetBubble(bubble.id, { tempo: Number(event.target.value) })}
+                            />
+                            <span className="inline-value">{bubble.tempo} BPM</span>
+                          </label>
+                        </div>
+
+                        <div className="range-grid">
+                          <label className="field-stack">
+                            <span className="card-label">Portée · {bubble.range} m</span>
+                            <input
+                              type="range"
+                              min="2"
+                              max="18"
+                              step="1"
+                              value={bubble.range}
+                              onChange={(event) => updateSetBubble(bubble.id, { range: Number(event.target.value) })}
+                            />
+                          </label>
+
+                          <label className="field-stack">
+                            <span className="card-label">Volume · {bubble.volume}%</span>
+                            <input
+                              type="range"
+                              min="0"
+                              max="100"
+                              step="1"
+                              value={bubble.volume}
+                              onChange={(event) => updateSetBubble(bubble.id, { volume: Number(event.target.value) })}
+                            />
+                          </label>
+                        </div>
+
+                        <div className="sheet-actions sheet-actions--tight">
+                          <button type="button" className="action-button" onClick={() => playSetBubblePreview(bubble.id)} disabled={!bubble.assetId}>
+                            {isPreviewing ? 'Preview en cours' : 'Preview'}
+                          </button>
+                          <button type="button" className="action-button action-button--danger" onClick={() => removeSetBubble(bubble.id)}>
+                            Supprimer le pad
+                          </button>
+                        </div>
+                      </section>
+                    );
+                  })}
+                </>
+              )}
 
               {isSessionActive && (
                 <>
-                  <section className="sheet-card">
-                    <div className="card-row">
-                      <span className="card-label">Mode</span>
-                      <strong>{modeLabel}</strong>
+                  <section className="sheet-card sheet-card--step">
+                    <div className="card-row card-row--start">
+                      <div>
+                        <span className="card-label">Étape 3 · Diffusion spatiale</span>
+                        <strong>{isBlowerMode ? 'Souffleur' : 'Sticker'}</strong>
+                      </div>
+                      <span className="step-badge">{bubbleCount}/8 bulles live</span>
                     </div>
                     <div className="sheet-actions">
-                      <button type="button" className="action-button" onClick={toggleMode}>
-                        {isListeningMode ? 'Passer en composition' : 'Passer en écoute'}
+                      <button
+                        type="button"
+                        className={`action-button ${isBlowerMode ? 'action-button--primary-ghost' : ''}`}
+                        onClick={() => setInteractionMode('blower')}
+                      >
+                        Mode souffleur
                       </button>
-                      {!isListeningMode && (
-                        <>
-                          <button
-                            type="button"
-                            className="action-button action-button--primary-ghost"
-                            onClick={armPlacement}
-                            disabled={!selectedSetBubble || !isSetValidated}
-                          >
-                            Préparer la pose
-                          </button>
-                          {isPlacementArmed && (
-                            <button type="button" className="action-button" onClick={cancelPlacement}>
-                              Annuler la pose
-                            </button>
-                          )}
-                        </>
-                      )}
+                      <button
+                        type="button"
+                        className={`action-button ${!isBlowerMode ? 'action-button--primary-ghost' : ''}`}
+                        onClick={() => setInteractionMode('sticker')}
+                      >
+                        Mode sticker
+                      </button>
                     </div>
                     <p>
-                      Sélectionnez une bulle du set, préparez la pose, puis touchez la scène pour confirmer son placement.
+                      Le mode souffleur crée une bulle à la position du téléphone. Le mode sticker sert à réviser les bulles
+                      déjà placées sans casser le flow de jeu.
                     </p>
                   </section>
 
                   <section className="sheet-card">
-                    <div className="card-row">
-                      <span className="card-label">Bulle prête</span>
-                      <strong>{selectedSetBubble ? selectedSetBubble.label : 'Aucune sélection'}</strong>
+                    <div className="card-row card-row--start">
+                      <div>
+                        <span className="card-label">Pad actif à souffler</span>
+                        <strong>{selectedSetBubble ? selectedSetBubble.label : 'Sélectionnez un pad'}</strong>
+                      </div>
+                      <span className="step-badge">{selectedSetBubble?.assetId ? 'Prêt' : 'Incomplet'}</span>
                     </div>
                     <p>
                       {selectedSetBubble
-                        ? `Portée ${selectedSetBubble.range} m · volume ${selectedSetBubble.volume}%`
-                        : 'Choisissez une bulle dans le set pour composer.'}
+                        ? `${formatPadStatus(selectedSetBubble)} · ${selectedSetBubble.syncMode}.`
+                        : 'Revenez sur un pad configuré pour le souffler dans la scène.'}
                     </p>
+                    <div className="sheet-actions">
+                      <button
+                        type="button"
+                        className="action-button action-button--primary-ghost"
+                        onClick={armPlacement}
+                        disabled={!selectedSetBubble || interactionMode !== 'blower' || !selectedSetBubble.assetId}
+                      >
+                        {isPlacementArmed ? 'Souffle prêt' : 'Armer le souffleur'}
+                      </button>
+                      {isPlacementArmed && (
+                        <button type="button" className="action-button" onClick={cancelPlacement}>
+                          Annuler
+                        </button>
+                      )}
+                    </div>
                   </section>
 
                   {bubbleCount > 0 && (
                     <section className="sheet-card">
-                      <div className="card-row">
-                        <span className="card-label">Paysage courant</span>
-                        <strong>{bubbleCount}/8 bulles posées</strong>
+                      <div className="card-row card-row--start">
+                        <div>
+                          <span className="card-label">Bulles posées</span>
+                          <strong>{selectedPlacedBubbleLabel}</strong>
+                        </div>
+                        <button type="button" className="action-button action-button--danger action-button--small" onClick={() => clearAllBubbles(true)}>
+                          Tout vider
+                        </button>
                       </div>
+
                       <div className="bubble-list">
                         {placedBubbles.map((bubble) => (
-                          <div key={bubble.id} className="bubble-list__item">
+                          <button
+                            key={bubble.id}
+                            type="button"
+                            className={`bubble-list__item bubble-list__item--button ${selectedPlacedBubbleId === bubble.id ? 'is-selected' : ''}`}
+                            onClick={() => setSelectedPlacedBubbleId(bubble.id)}
+                          >
                             <div>
                               <strong>{bubble.label}</strong>
                               <p>{bubble.assetName} · {bubble.range} m · {bubble.volume}%</p>
                             </div>
-                            <div className="sheet-actions sheet-actions--tight sheet-actions--inline">
-                              <button type="button" className="action-button action-button--small" onClick={() => togglePlacedBubbleAudio(bubble.id)}>
-                                {bubble.isPlaying ? 'Stop' : 'Play'}
-                              </button>
-                            </div>
-                          </div>
+                            <span className="pill-state">{bubble.isPlaying ? 'Live' : 'Pause'}</span>
+                          </button>
                         ))}
                       </div>
-                      <div className="sheet-actions">
-                        <button type="button" className="action-button action-button--danger" onClick={() => clearAllBubbles(true)}>
-                          Vider la composition
-                        </button>
-                      </div>
+
+                      {selectedPlacedBubble && (
+                        <div className="editor-panel">
+                          <div className="range-grid">
+                            <label className="field-stack">
+                              <span className="card-label">Volume bubble · {selectedPlacedBubble.volume}%</span>
+                              <input
+                                type="range"
+                                min="0"
+                                max="100"
+                                step="1"
+                                value={selectedPlacedBubble.volume}
+                                onChange={(event) => updatePlacedBubble(selectedPlacedBubble.id, { volume: Number(event.target.value) })}
+                              />
+                            </label>
+
+                            <label className="field-stack">
+                              <span className="card-label">Portée bubble · {selectedPlacedBubble.range} m</span>
+                              <input
+                                type="range"
+                                min="2"
+                                max="18"
+                                step="1"
+                                value={selectedPlacedBubble.range}
+                                onChange={(event) => updatePlacedBubble(selectedPlacedBubble.id, { range: Number(event.target.value) })}
+                              />
+                            </label>
+                          </div>
+
+                          <div className="sheet-actions sheet-actions--tight">
+                            <button type="button" className="action-button" onClick={() => togglePlacedBubbleAudio(selectedPlacedBubble.id)}>
+                              {selectedPlacedBubble.isPlaying ? 'Pause audio' : 'Relancer audio'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </section>
                   )}
                 </>
@@ -341,7 +448,7 @@ function App() {
                 onClick={enterAr}
                 disabled={!canEnterAr}
               >
-                {isBusy ? 'Starting…' : isSessionActive ? 'Quitter AR' : 'Entrer en AR'}
+                {isBusy ? 'Starting…' : isSessionActive ? 'Quitter AR' : 'Entrer dans l’espace AR'}
               </button>
             </div>
           </div>
@@ -360,7 +467,7 @@ function App() {
         ref={fileInputRef}
         type="file"
         className="visually-hidden"
-        accept="audio/*,.mp3,.wav"
+        accept="audio/*,.mp3,.wav,.m4a"
         multiple
         onChange={handleFileChange}
       />

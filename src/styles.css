@@ -10,7 +10,7 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   --bg: rgba(7, 10, 20, 0.56);
-  --bg-strong: rgba(8, 12, 24, 0.9);
+  --bg-strong: rgba(8, 12, 24, 0.92);
   --surface: rgba(255, 255, 255, 0.08);
   --surface-strong: rgba(255, 255, 255, 0.12);
   --border: rgba(255, 255, 255, 0.12);
@@ -116,6 +116,14 @@ input:disabled {
   pointer-events: auto;
 }
 
+.hero-copy-block--story {
+  padding: 20px 22px;
+  border-radius: var(--radius-xl);
+  background: rgba(8, 12, 24, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px);
+}
+
 .hero-copy-block h1,
 .sheet-header h2 {
   margin: 0;
@@ -127,9 +135,32 @@ input:disabled {
 }
 
 .hero-copy-block p,
-.sheet-card p {
+.sheet-card p,
+.bubble-list__item p {
   margin: 0;
   color: rgba(238, 244, 255, 0.82);
+}
+
+.hero-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.hero-pills span,
+.step-badge,
+.pill-state,
+.inline-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-size: 0.82rem;
 }
 
 .eyebrow,
@@ -181,7 +212,7 @@ input:disabled {
 
 .dock-handle {
   pointer-events: auto;
-  width: min(420px, calc(100vw - 32px));
+  width: min(460px, calc(100vw - 32px));
   display: grid;
   gap: 2px;
   padding: 12px 16px;
@@ -226,8 +257,8 @@ input:disabled {
   position: relative;
   z-index: 1;
   margin: 0 auto;
-  width: min(620px, 100%);
-  max-height: min(82vh, 820px);
+  width: min(700px, 100%);
+  max-height: min(84vh, 920px);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 18px;
@@ -279,10 +310,6 @@ input:disabled {
   gap: 8px;
 }
 
-.sheet-actions--inline {
-  flex-wrap: nowrap;
-}
-
 .sheet-header {
   align-items: flex-start;
 }
@@ -312,7 +339,12 @@ input:disabled {
   border-color: rgba(142, 231, 255, 0.18);
 }
 
-.bubble-card.is-active {
+.sheet-card--step {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
+}
+
+.bubble-card.is-active,
+.bubble-list__item.is-selected {
   border-color: rgba(142, 231, 255, 0.35);
   background: linear-gradient(180deg, rgba(142, 231, 255, 0.1), rgba(255, 255, 255, 0.05));
 }
@@ -346,6 +378,10 @@ input:disabled {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.range-grid--triple {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .radio-chip {
@@ -405,6 +441,20 @@ input:disabled {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.bubble-list__item--button {
+  width: 100%;
+  text-align: left;
+}
+
+.editor-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 .toast-stack {
   position: absolute;
   left: 50%;
@@ -455,7 +505,7 @@ input:disabled {
 
   .bottom-sheet__panel {
     width: 100%;
-    max-height: min(86vh, 820px);
+    max-height: min(88vh, 920px);
     padding-left: 16px;
     padding-right: 16px;
   }
@@ -468,7 +518,8 @@ input:disabled {
   }
 
   .sheet-actions,
-  .range-grid {
+  .range-grid,
+  .range-grid--triple {
     display: grid;
     grid-template-columns: 1fr;
   }
