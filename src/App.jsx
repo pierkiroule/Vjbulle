@@ -17,14 +17,11 @@ function App() {
     overlayRootRef,
     pads,
     bpm,
-    beatDuration,
     bubbleCount,
-    placedBubbles,
     isArSupported,
     availabilityMessage,
     isSessionActive,
     isBusy,
-    isHudVisible,
     pendingPadId,
     isRecordingMic,
     menuOpen,
@@ -91,14 +88,14 @@ function App() {
     <div className="app-shell" onPointerDown={pingHud}>
       <div ref={sceneHostRef} className="scene-host" aria-hidden="true" />
 
-      <div ref={overlayRootRef} className={`overlay-root ${isSessionActive ? 'is-ar' : ''} ${isHudVisible ? 'is-visible' : 'is-hidden'}`}>
-        <div className="top-hud">
-          <div className="glass-pill hud-status">
+      <div ref={overlayRootRef} className={`overlay-root ${isSessionActive ? 'is-ar' : ''}`}>
+        <div className="top-hud looper-strip">
+          <div className="glass-pill hud-status hud-status--compact">
             <div>
-              <span className="hud-label">Looper AR</span>
-              <strong>{bpm} BPM · {beatDuration.toFixed(3)}s / beat</strong>
+              <span className="hud-label">AR Looper</span>
+              <strong>{bpm} BPM</strong>
             </div>
-            <span className="hud-chip">{bubbleCount}/8 bulles</span>
+            <span className="hud-chip">{bubbleCount}/8</span>
           </div>
 
           <div className="hud-actions">
@@ -112,11 +109,11 @@ function App() {
         </div>
 
         {menuOpen && (
-          <div className="glass-sheet mini-menu">
+          <div className="glass-sheet mini-menu mini-menu--floating">
             <p>{readiness}</p>
             <div className="mini-menu__actions">
               <button type="button" className="action-button" onClick={() => clearAllBubbles(true)} disabled={!bubbleCount}>
-                Vider les bulles
+                Vider
               </button>
               <button type="button" className="action-button" onClick={() => setMenuOpen(false)}>
                 Fermer
@@ -126,13 +123,13 @@ function App() {
         )}
 
         {!isArSupported && !isSessionActive && (
-          <div className="glass-sheet availability-banner">
+          <div className="glass-pill availability-banner availability-banner--inline">
             {availabilityMessage}
           </div>
         )}
 
         {!!pendingPadId && (
-          <div className="glass-sheet source-sheet">
+          <div className="glass-pill source-sheet source-sheet--inline">
             <div>
               <span className="hud-label">Pad {pendingPadId.split('-').at(-1)}</span>
               <strong>{filledPadIds.has(pendingPadId) ? 'Remplacer le sample' : 'Ajouter un sample'}</strong>
@@ -143,14 +140,14 @@ function App() {
                 className="action-button"
                 onClick={() => openFilePickerForPad(pendingPadId, fileInputRef.current)}
               >
-                Import audio
+                Import
               </button>
               <button
                 type="button"
                 className={`action-button ${isRecordingMic ? 'action-button--danger' : ''}`}
                 onClick={() => toggleMicRecording(pendingPadId)}
               >
-                {isRecordingMic ? 'Stop micro' : 'Record mic'}
+                {isRecordingMic ? 'Stop mic' : 'Micro'}
               </button>
               <button type="button" className="action-button" onClick={() => setPendingPadId('')} disabled={isRecordingMic}>
                 Annuler
@@ -159,19 +156,10 @@ function App() {
           </div>
         )}
 
-        <div className="bottom-hud">
-          <div className="glass-sheet compact-instructions">
-            <strong>{activePadCount}/8 pads prêts</strong>
+        <div className="bottom-hud bottom-hud--minimal">
+          <div className="glass-pill compact-instructions compact-instructions--inline">
+            <strong>{activePadCount}/8 pads</strong>
             <p>{readiness}</p>
-            {!!placedBubbles.length && (
-              <div className="bubble-inline-list">
-                {placedBubbles.map((bubble) => (
-                  <span key={bubble.id} className={`bubble-inline-chip ${bubble.attached ? 'is-attached' : ''}`}>
-                    {bubble.attached ? '📌' : '○'} {bubble.label}
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
 
           <div className="pad-carousel" role="list" aria-label="Pads audio">

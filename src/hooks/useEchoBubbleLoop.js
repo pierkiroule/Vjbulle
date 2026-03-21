@@ -12,7 +12,6 @@ const FADE_TIME = 0.18;
 const FLOAT_RISE = 0.018;
 const FLOAT_SWAY = 0.012;
 const BUBBLE_RADIUS = 0.088;
-const AUTO_HIDE_MS = 2200;
 
 const listenerPosition = new THREE.Vector3();
 const listenerQuaternion = new THREE.Quaternion();
@@ -24,6 +23,7 @@ const tempPosition = new THREE.Vector3();
 const tempTarget = new THREE.Vector3();
 const bubbleVisualOffset = new THREE.Vector3();
 const bubbleWorldPosition = new THREE.Vector3();
+const analysisBuffer = new Float32Array(2048);
 const rayOrigin = new THREE.Vector3();
 const rayDirection = new THREE.Vector3();
 const raycaster = new THREE.Raycaster();
@@ -48,29 +48,101 @@ function createPad(index) {
   };
 }
 
-function pickSmartLoop(duration) {
-  const safeDuration = Math.max(duration || 0, 0.01);
+function estimateSampleBpm(buffer) {
+  const sampleRate = buffer.sampleRate || 44100;
+  const channelData = buffer.getChannelData(0);
+  if (!channelData?.length) {
+    return DEFAULT_BPM;
+  }
+
+  const stride = Math.max(1, Math.floor(channelData.length / analysisBuffer.length));
+  const frameLength = analysisBuffer.length;
+
+  for (let index = 0; index < frameLength; index += 1) {
+    let sum = 0;
+    let count = 0;
+    const start = index * stride;
+    const end = Math.min(start + stride, channelData.length);
+
+    for (let cursor = start; cursor < end; cursor += 1) {
+      sum += Math.abs(channelData[cursor]);
+      count += 1;
+    }
+
+    analysisBuffer[index] = count ? sum / count : 0;
+  }
+
+  const meanEnergy = analysisBuffer.reduce((total, value) => total + value, 0) / frameLength;
+  const threshold = meanEnergy * 1.45;
+  const peaks = [];
+
+  for (let index = 1; index < frameLength - 1; index += 1) {
+    const value = analysisBuffer[index];
+    if (value > threshold && value >= analysisBuffer[index - 1] && value > analysisBuffer[index + 1]) {
+      peaks.push(index);
+    }
+  }
+
+  if (peaks.length < 2) {
+    return DEFAULT_BPM;
+  }
+
+  const secondsPerFrame = (channelData.length / sampleRate) / frameLength;
+  const candidates = [];
+
+  for (let index = 1; index < peaks.length; index += 1) {
+    const deltaFrames = peaks[index] - peaks[index - 1];
+    const interval = deltaFrames * secondsPerFrame;
+    if (!interval) {
+      continue;
+    }
+
+    let bpm = 60 / interval;
+    while (bpm < 70) bpm *= 2;
+    while (bpm > 160) bpm /= 2;
+    if (bpm >= 70 && bpm <= 160) {
+      candidates.push(bpm);
+    }
+  }
+
+  if (!candidates.length) {
+    return DEFAULT_BPM;
+  }
+
+  candidates.sort((left, right) => left - right);
+  return Math.round(candidates[Math.floor(candidates.length / 2)]);
+}
+
+function pickSmartLoop(buffer) {
+  const safeDuration = Math.max(buffer?.duration || 0, 0.01);
+  const estimatedBpm = estimateSampleBpm(buffer);
   const options = [];
 
-  for (let bpm = 70; bpm <= 160; bpm += 1) {
+  for (const bpm of [estimatedBpm - 2, estimatedBpm - 1, estimatedBpm, estimatedBpm + 1, estimatedBpm + 2, DEFAULT_BPM]) {
+    if (bpm < 70 || bpm > 160) {
+      continue;
+    }
+
     const beatDuration = 60 / bpm;
     for (const bars of [1, 2, 4]) {
       const loopDuration = bars * 4 * beatDuration;
       const diff = Math.abs(safeDuration - loopDuration);
-      const overPenalty = loopDuration > safeDuration ? (loopDuration - safeDuration) * 1.35 : 0;
-      const score = diff + overPenalty;
-      options.push({ bpm, bars, loopDuration, score });
+      const overPenalty = loopDuration > safeDuration ? (loopDuration - safeDuration) * 1.4 : 0;
+      options.push({ bpm, bars, loopDuration, score: diff + overPenalty });
     }
+  }
+
+  if (!options.length) {
+    options.push({ bpm: DEFAULT_BPM, bars: 1, loopDuration: Math.min(safeDuration, (60 / DEFAULT_BPM) * 4), score: 0 });
   }
 
   options.sort((left, right) => left.score - right.score);
   const best = options[0];
-  const loopEnd = Math.min(safeDuration, best.loopDuration);
 
   return {
     bpm: best.bpm,
     bars: best.bars,
-    loopEnd: Number(loopEnd.toFixed(3)),
+    loopEnd: Number(Math.min(safeDuration, best.loopDuration).toFixed(3)),
     gain: DEFAULT_GAIN,
   };
 }
@@ -92,7 +164,6 @@ export function useEchoBubbleLoop() {
   const xrSessionRef = useRef(null);
   const audioContextRef = useRef(null);
   const masterGainRef = useRef(null);
-  const hideHudTimerRef = useRef(0);
   const dismissTimerRef = useRef(0);
   const toastCounterRef = useRef(0);
   const bubbleCounterRef = useRef(0);
@@ -109,7 +180,6 @@ export function useEchoBubbleLoop() {
   const [isBusy, setIsBusy] = useState(false);
   const [bubbleCount, setBubbleCount] = useState(0);
   const [toasts, setToasts] = useState([]);
-  const [isHudVisible, setIsHudVisible] = useState(true);
   const [pendingPadId, setPendingPadId] = useState('');
   const [isRecordingMic, setIsRecordingMic] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -128,16 +198,7 @@ export function useEchoBubbleLoop() {
     }, 2200);
   }, []);
 
-  const pingHud = useCallback(() => {
-    setIsHudVisible(true);
-    window.clearTimeout(hideHudTimerRef.current);
-
-    if (xrSessionRef.current && !menuOpen) {
-      hideHudTimerRef.current = window.setTimeout(() => {
-        setIsHudVisible(false);
-      }, AUTO_HIDE_MS);
-    }
-  }, [menuOpen]);
+  const pingHud = useCallback(() => {}, []);
 
   const ensureAudioContext = useCallback(async () => {
     if (!audioContextRef.current) {
@@ -225,7 +286,7 @@ export function useEchoBubbleLoop() {
   }, [destroyBubble, postToast]);
 
   const assignDecodedSampleToPad = useCallback((padId, { name, url, buffer, sourceType }) => {
-    const smartSample = pickSmartLoop(buffer.duration);
+    const smartSample = pickSmartLoop(buffer);
     updatePad(padId, {
       name,
       url,
@@ -239,7 +300,7 @@ export function useEchoBubbleLoop() {
     });
 
     setPendingPadId('');
-    postToast(`${name} → pad ${padId.split('-').at(-1)}. Loop auto ${smartSample.bars} bar · ${smartSample.bpm} BPM.`, 'success');
+    postToast(`${name} → pad ${padId.split('-').at(-1)}. Boucle auto ${smartSample.bars} bar · ${smartSample.bpm} BPM.`, 'success');
   }, [postToast, updatePad]);
 
   const importAudioFileToPad = useCallback(async (padId, file) => {
@@ -370,7 +431,7 @@ export function useEchoBubbleLoop() {
     gain.connect(panner);
     panner.connect(masterGainRef.current);
 
-    const nextBeat = Math.ceil(context.currentTime / beatDuration) * beatDuration;
+    const nextBeat = Math.ceil((context.currentTime + 0.0001) / beatDuration) * beatDuration;
     source.start(nextBeat);
 
     return { source, gain, panner, nextBeat };
@@ -474,7 +535,7 @@ export function useEchoBubbleLoop() {
       setPlacedBubbleRevision((current) => current + 1);
       setPendingPadId('');
       pingHud();
-      postToast(`Bulle ${pad.label} créée · départ quantifié au prochain temps.`, 'success');
+      postToast(`Bulle ${pad.label} soufflée · départ sur le prochain temps.`, 'success');
     } catch (error) {
       postToast(error.message, 'warning');
     }
@@ -551,8 +612,6 @@ export function useEchoBubbleLoop() {
     xrSessionRef.current = null;
     setIsSessionActive(false);
     setMenuOpen(false);
-    setIsHudVisible(true);
-    window.clearTimeout(hideHudTimerRef.current);
     postToast('Session AR terminée.', 'neutral');
   }, [handleSelectEnd, handleSelectStart, postToast]);
 
@@ -584,10 +643,9 @@ export function useEchoBubbleLoop() {
       await rendererRef.current.xr.setSession(session);
 
       setIsSessionActive(true);
-      setIsHudVisible(true);
       setMenuOpen(false);
       pingHud();
-      postToast('AR prête · tape une bulle pour coller, appui long pour pop.', 'success');
+      postToast('AR prête · tape une bulle pour coller, appui long pour la percer.', 'success');
     } catch (error) {
       postToast(`AR impossible: ${error.message}`, 'warning');
     } finally {
@@ -758,7 +816,6 @@ export function useEchoBubbleLoop() {
       window.removeEventListener('resize', onResize);
       renderer.setAnimationLoop(null);
       window.clearTimeout(dismissTimerRef.current);
-      window.clearTimeout(hideHudTimerRef.current);
 
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         mediaRecorderRef.current.stop();
@@ -782,16 +839,6 @@ export function useEchoBubbleLoop() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (!isSessionActive || menuOpen) {
-      return undefined;
-    }
-
-    pingHud();
-    return () => {
-      window.clearTimeout(hideHudTimerRef.current);
-    };
-  }, [isSessionActive, menuOpen, pingHud]);
 
   const activePadCount = useMemo(() => pads.filter((pad) => pad.buffer).length, [pads]);
 
@@ -807,7 +854,6 @@ export function useEchoBubbleLoop() {
     availabilityMessage,
     isSessionActive,
     isBusy,
-    isHudVisible,
     pendingPadId,
     isRecordingMic,
     menuOpen,
