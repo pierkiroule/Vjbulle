@@ -61,11 +61,20 @@ strong {
   inset: 0;
 }
 
+.app-shell {
+  isolation: isolate;
+}
+
+.scene-host {
+  z-index: 0;
+}
+
 .scene-host canvas {
   display: block;
 }
 
 .overlay-root {
+  z-index: 2;
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: 12px;
@@ -333,6 +342,7 @@ strong {
 }
 
 .toast-stack {
+  z-index: 3;
   position: absolute;
   left: 50%;
   bottom: calc(168px + env(safe-area-inset-bottom));
