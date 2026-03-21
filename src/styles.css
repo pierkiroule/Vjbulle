@@ -40,9 +40,9 @@ body,
 body {
   overflow: hidden;
   background:
-    radial-gradient(circle at top, rgba(40, 66, 115, 0.75), transparent 35%),
-    radial-gradient(circle at bottom, rgba(19, 28, 52, 0.86), transparent 38%),
-    linear-gradient(180deg, #080c18 0%, #03060d 100%);
+    radial-gradient(circle at top, rgba(59, 104, 184, 0.38), transparent 32%),
+    radial-gradient(circle at bottom, rgba(14, 28, 58, 0.86), transparent 36%),
+    linear-gradient(180deg, #09111f 0%, #03060d 100%);
 }
 
 button,
