@@ -120,11 +120,12 @@
 
       .intro {
         position: absolute;
-        top: max(16px, env(safe-area-inset-top));
+        top: max(14px, env(safe-area-inset-top));
         left: max(16px, env(safe-area-inset-left));
-        width: min(560px, calc(100vw - 32px));
+        right: max(16px, env(safe-area-inset-right));
+        width: auto;
         display: grid;
-        gap: 12px;
+        gap: 10px;
         pointer-events: auto;
         transition: opacity 240ms ease, transform 240ms ease;
       }
@@ -154,13 +155,13 @@
       }
 
       .intro h1 {
-        font-size: clamp(2.8rem, 10vw, 5.8rem);
-        line-height: 0.9;
-        max-width: 9ch;
+        font-size: clamp(2.35rem, 10vw, 4.4rem);
+        line-height: 0.92;
+        max-width: 8ch;
       }
 
       .intro p {
-        max-width: 56ch;
+        max-width: 46ch;
         color: rgba(237, 245, 255, 0.84);
       }
 
@@ -173,12 +174,16 @@
         gap: 10px;
       }
 
+      .intro-actions {
+        grid-template-columns: 1fr;
+      }
+
       .panel-shell {
         position: absolute;
-        left: max(16px, env(safe-area-inset-left));
-        right: max(16px, env(safe-area-inset-right));
-        bottom: calc(16px + env(safe-area-inset-bottom));
-        width: min(440px, calc(100vw - 32px));
+        left: max(12px, env(safe-area-inset-left));
+        right: max(12px, env(safe-area-inset-right));
+        bottom: calc(12px + env(safe-area-inset-bottom));
+        width: auto;
         max-width: 100%;
         pointer-events: auto;
         transition: opacity 240ms ease, transform 240ms ease;
@@ -192,9 +197,11 @@
 
       .panel {
         display: grid;
-        gap: 14px;
-        padding: 16px;
-        border-radius: var(--radius-xl);
+        gap: 12px;
+        max-height: min(68vh, 760px);
+        overflow: auto;
+        padding: 14px;
+        border-radius: 24px;
         border: 1px solid rgba(255, 255, 255, 0.12);
         background:
           linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.05)),
@@ -212,15 +219,17 @@
         gap: 12px;
       }
 
-      .panel-head {
+      .panel-head,
+      .row {
         align-items: flex-start;
+        flex-direction: column;
       }
 
       .section {
         display: grid;
         gap: 10px;
-        padding: 14px;
-        border-radius: var(--radius-lg);
+        padding: 12px;
+        border-radius: 18px;
         border: 1px solid rgba(255, 255, 255, 0.08);
         background: rgba(255, 255, 255, 0.04);
       }
@@ -276,7 +285,7 @@
       }
 
       .action-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: 1fr;
       }
 
       .action-btn.ghost {
@@ -301,7 +310,7 @@
 
       .asset-list,
       .bubble-list {
-        max-height: 24vh;
+        max-height: 20vh;
         overflow: auto;
         padding-right: 4px;
       }
@@ -382,23 +391,21 @@
 
       .dock {
         position: absolute;
-        right: max(16px, env(safe-area-inset-right));
-        bottom: calc(16px + env(safe-area-inset-bottom));
+        left: 50%;
+        bottom: calc(12px + env(safe-area-inset-bottom));
+        transform: translateX(-50%);
         pointer-events: auto;
         box-shadow: var(--shadow);
       }
 
-      .overlay.is-ar .dock {
-        right: max(16px, env(safe-area-inset-right));
-      }
-
       .status-stack {
         position: absolute;
+        left: max(16px, env(safe-area-inset-left));
         right: max(16px, env(safe-area-inset-right));
-        top: max(16px, env(safe-area-inset-top));
+        top: calc(max(14px, env(safe-area-inset-top)) + 112px);
         display: grid;
-        gap: 10px;
-        justify-items: end;
+        gap: 8px;
+        justify-items: stretch;
         pointer-events: auto;
       }
 
@@ -408,6 +415,7 @@
         gap: 8px;
         min-height: 40px;
         padding: 0 14px;
+        width: 100%;
         border-radius: var(--radius-pill);
         border: 1px solid rgba(255, 255, 255, 0.12);
         background: var(--panel);
@@ -453,23 +461,77 @@
         display: none !important;
       }
 
-      @media (max-width: 720px) {
+      @media (min-width: 721px) {
         .intro {
-          width: min(420px, calc(100vw - 32px));
+          left: max(16px, env(safe-area-inset-left));
+          right: auto;
+          width: min(560px, calc(100vw - 32px));
+          gap: 12px;
         }
 
-        .panel-shell {
-          width: calc(100vw - 32px);
+        .intro h1 {
+          font-size: clamp(2.8rem, 10vw, 5.8rem);
+          max-width: 9ch;
         }
 
-        .action-grid {
-          grid-template-columns: 1fr;
+        .intro p {
+          max-width: 56ch;
+        }
+
+        .intro-actions {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
         .status-stack {
+          left: auto;
+          right: max(16px, env(safe-area-inset-right));
+          top: max(16px, env(safe-area-inset-top));
+          width: auto;
+          justify-items: end;
+        }
+
+        .chip {
+          width: auto;
+        }
+
+        .panel-shell {
           left: max(16px, env(safe-area-inset-left));
-          right: auto;
-          justify-items: start;
+          right: max(16px, env(safe-area-inset-right));
+          bottom: calc(16px + env(safe-area-inset-bottom));
+          width: min(440px, calc(100vw - 32px));
+        }
+
+        .panel {
+          gap: 14px;
+          max-height: min(78vh, 760px);
+          padding: 16px;
+          border-radius: var(--radius-xl);
+        }
+
+        .panel-head,
+        .row {
+          flex-direction: row;
+        }
+
+        .section {
+          padding: 14px;
+          border-radius: var(--radius-lg);
+        }
+
+        .action-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .asset-list,
+        .bubble-list {
+          max-height: 24vh;
+        }
+
+        .dock {
+          left: auto;
+          right: max(16px, env(safe-area-inset-right));
+          bottom: calc(16px + env(safe-area-inset-bottom));
+          transform: none;
         }
       }
     </style>
