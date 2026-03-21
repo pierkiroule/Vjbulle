@@ -113,6 +113,35 @@ function estimateSampleBpm(buffer) {
   return Math.round(candidates[Math.floor(candidates.length / 2)]);
 }
 
+function normalizeSampleGain(buffer) {
+  const channelData = buffer.getChannelData(0);
+  if (!channelData?.length) {
+    return DEFAULT_GAIN;
+  }
+
+  let peak = 0;
+  let energy = 0;
+
+  for (let index = 0; index < channelData.length; index += 64) {
+    const sample = channelData[index];
+    const absolute = Math.abs(sample);
+    peak = Math.max(peak, absolute);
+    energy += sample * sample;
+  }
+
+  const sampleCount = Math.max(1, Math.ceil(channelData.length / 64));
+  const rms = Math.sqrt(energy / sampleCount);
+  const peakSafe = Math.max(peak, 0.0001);
+  const rmsSafe = Math.max(rms, 0.0001);
+  const targetPeak = 0.72;
+  const targetRms = 0.22;
+  const peakScale = targetPeak / peakSafe;
+  const rmsScale = targetRms / rmsSafe;
+  const normalized = DEFAULT_GAIN * Math.min(peakScale, rmsScale, 1.4);
+
+  return Number(Math.min(0.42, Math.max(0.18, normalized)).toFixed(3));
+}
+
 function pickSmartLoop(buffer) {
   const safeDuration = Math.max(buffer?.duration || 0, 0.01);
   const estimatedBpm = estimateSampleBpm(buffer);
@@ -143,7 +172,8 @@ function pickSmartLoop(buffer) {
     bpm: best.bpm,
     bars: best.bars,
     loopEnd: Number(Math.min(safeDuration, best.loopDuration).toFixed(3)),
-    gain: DEFAULT_GAIN,
+    gain: normalizeSampleGain(buffer),
+    duration: Number(safeDuration.toFixed(3)),
   };
 }
 
@@ -291,7 +321,7 @@ export function useEchoBubbleLoop() {
       name,
       url,
       buffer,
-      duration: buffer.duration,
+      duration: smartSample.duration,
       sourceType,
       bpm: smartSample.bpm,
       bars: smartSample.bars,
@@ -300,7 +330,7 @@ export function useEchoBubbleLoop() {
     });
 
     setPendingPadId('');
-    postToast(`${name} → pad ${padId.split('-').at(-1)}. Boucle auto ${smartSample.bars} bar · ${smartSample.bpm} BPM.`, 'success');
+    postToast(`${name} → pad ${padId.split('-').at(-1)} · auto ${smartSample.bars} bar · ${smartSample.bpm} BPM.`, 'success');
   }, [postToast, updatePad]);
 
   const importAudioFileToPad = useCallback(async (padId, file) => {
@@ -431,7 +461,7 @@ export function useEchoBubbleLoop() {
     gain.connect(panner);
     panner.connect(masterGainRef.current);
 
-    const nextBeat = Math.ceil((context.currentTime + 0.0001) / beatDuration) * beatDuration;
+    const nextBeat = Math.ceil(context.currentTime / beatDuration) * beatDuration;
     source.start(nextBeat);
 
     return { source, gain, panner, nextBeat };
@@ -484,7 +514,7 @@ export function useEchoBubbleLoop() {
       visualPosition: new THREE.Vector3(),
       velocity: new THREE.Vector3(
         (Math.random() - 0.5) * 0.004,
-        FLOAT_RISE,
+        FLOAT_RISE + Math.random() * 0.004,
         (Math.random() - 0.5) * 0.004,
       ),
     };
@@ -518,6 +548,7 @@ export function useEchoBubbleLoop() {
       tempForward.copy(listenerForward).applyQuaternion(listenerQuaternion).normalize();
 
       bubble.basePosition.copy(tempPosition).addScaledVector(tempForward, PLACE_DISTANCE);
+      bubble.visualPosition.copy(bubble.basePosition);
       bubble.root.position.copy(bubble.basePosition);
       bubble.root.scale.setScalar(0.001);
       bubble.shell.userData.bubbleId = bubble.id;
@@ -535,7 +566,7 @@ export function useEchoBubbleLoop() {
       setPlacedBubbleRevision((current) => current + 1);
       setPendingPadId('');
       pingHud();
-      postToast(`Bulle ${pad.label} soufflée · départ sur le prochain temps.`, 'success');
+      postToast(`Bulle ${pad.label} soufflée · start quantifié au prochain beat.`, 'success');
     } catch (error) {
       postToast(error.message, 'warning');
     }
@@ -664,14 +695,13 @@ export function useEchoBubbleLoop() {
       return availabilityMessage;
     }
     if (!pads.some((pad) => pad.buffer)) {
-      return 'Ajoutez au moins un sample sur un pad.';
+      return 'Charge un sample, puis souffle une bulle sur le beat.';
     }
     if (!isSessionActive) {
-      return 'Entrez en AR puis tapez un pad pour créer une bulle sur le tempo global.';
+      return 'Entre en AR puis tape un pad pour créer une bulle looper.';
     }
-    return 'Tapez un pad pour souffler une loop. Tapez une bulle pour la coller, appui long pour la pop.';
+    return 'Tap pad = bubble on beat · tap bubble = coller · long press = pop.';
   }, [availabilityMessage, isArSupported, isSessionActive, pads]);
-
 
   useEffect(() => {
     const scene = new THREE.Scene();
@@ -838,7 +868,6 @@ export function useEchoBubbleLoop() {
       sceneHostRef.current?.replaceChildren();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
 
   const activePadCount = useMemo(() => pads.filter((pad) => pad.buffer).length, [pads]);
 
