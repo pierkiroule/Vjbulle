@@ -2,11 +2,514 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no"
+    />
     <title>EchoBubbleLoop</title>
+    <meta
+      name="description"
+      content="EchoBubbleLoop is a spatial audio instrument for sculpting glowing sound bubbles around you in real time."
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --bg: #050814;
+        --bg-soft: rgba(10, 14, 27, 0.78);
+        --bg-panel: rgba(14, 19, 35, 0.82);
+        --line: rgba(255, 255, 255, 0.12);
+        --line-strong: rgba(141, 227, 255, 0.28);
+        --text: #edf5ff;
+        --muted: rgba(237, 245, 255, 0.7);
+        --accent: #96ebff;
+        --accent-2: #9f9cff;
+        --danger: #ff9bcb;
+        --shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+        --radius-xl: 28px;
+        --radius-lg: 20px;
+        --radius-md: 16px;
+        --radius-pill: 999px;
+      }
+
+      * {
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at top, rgba(72, 118, 255, 0.16), transparent 34%),
+          radial-gradient(circle at bottom, rgba(77, 214, 255, 0.12), transparent 30%),
+          linear-gradient(180deg, #090d19 0%, var(--bg) 100%);
+        color: var(--text);
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(circle at center, rgba(255, 255, 255, 0.05), transparent 50%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 25%, rgba(255, 255, 255, 0.02));
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+
+      button,
+      input,
+      select {
+        border: 0;
+        outline: none;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      button:disabled,
+      input:disabled,
+      select:disabled {
+        cursor: not-allowed;
+        opacity: 0.45;
+      }
+
+      #app,
+      #scene {
+        position: fixed;
+        inset: 0;
+      }
+
+      #scene canvas {
+        display: block;
+      }
+
+      .hud {
+        position: fixed;
+        inset: 0;
+        padding:
+          max(16px, env(safe-area-inset-top))
+          max(16px, env(safe-area-inset-right))
+          max(16px, env(safe-area-inset-bottom))
+          max(16px, env(safe-area-inset-left));
+        pointer-events: none;
+      }
+
+      .hero,
+      .cluster,
+      .panel,
+      .toast,
+      .bubble-chip {
+        backdrop-filter: blur(18px) saturate(1.12);
+        -webkit-backdrop-filter: blur(18px) saturate(1.12);
+      }
+
+      .hero {
+        pointer-events: auto;
+        max-width: min(660px, calc(100vw - 32px));
+        display: grid;
+        gap: 10px;
+      }
+
+      .eyebrow,
+      .micro,
+      .slider-meta,
+      .empty-state,
+      .status-line {
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 0.74rem;
+        color: var(--muted);
+      }
+
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+
+      .hero h1 {
+        font-size: clamp(2.6rem, 9vw, 5.6rem);
+        line-height: 0.92;
+        max-width: 10ch;
+      }
+
+      .hero p {
+        max-width: 56ch;
+        color: rgba(237, 245, 255, 0.82);
+      }
+
+      .cluster {
+        position: absolute;
+        right: max(16px, env(safe-area-inset-right));
+        top: max(16px, env(safe-area-inset-top));
+        display: grid;
+        gap: 10px;
+        justify-items: end;
+        pointer-events: auto;
+      }
+
+      .permission-btn,
+      .toggle-btn,
+      .action-btn,
+      .sound-toggle,
+      .mini-btn {
+        border-radius: var(--radius-pill);
+        color: var(--text);
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.08);
+        transition: transform 180ms ease, background 180ms ease, border-color 180ms ease, opacity 180ms ease;
+      }
+
+      .permission-btn:active,
+      .toggle-btn:active,
+      .action-btn:active,
+      .sound-toggle:active,
+      .mini-btn:active {
+        transform: scale(0.98);
+      }
+
+      .permission-btn,
+      .toggle-btn {
+        min-height: 46px;
+        padding: 0 16px;
+        box-shadow: var(--shadow);
+      }
+
+      .panel {
+        position: absolute;
+        left: max(16px, env(safe-area-inset-left));
+        right: max(16px, env(safe-area-inset-right));
+        bottom: calc(16px + env(safe-area-inset-bottom));
+        width: min(460px, calc(100vw - 32px));
+        max-width: 100%;
+        pointer-events: auto;
+        display: grid;
+        gap: 14px;
+        padding: 18px;
+        border-radius: var(--radius-xl);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04)),
+          var(--bg-panel);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: var(--shadow);
+        transform: translateY(0);
+        opacity: 1;
+        transition: transform 240ms ease, opacity 240ms ease;
+      }
+
+      .panel.is-collapsed {
+        transform: translateY(calc(100% - 74px));
+      }
+
+      .panel-head,
+      .row,
+      .bubble-chip__head,
+      .bubble-chip__meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .panel-head {
+        align-items: flex-start;
+      }
+
+      .panel-title {
+        display: grid;
+        gap: 6px;
+      }
+
+      .panel-title h2 {
+        font-size: clamp(1.4rem, 5vw, 2rem);
+      }
+
+      .status-line {
+        color: rgba(150, 235, 255, 0.9);
+      }
+
+      .section {
+        display: grid;
+        gap: 10px;
+        padding: 14px;
+        border-radius: var(--radius-lg);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .section p,
+      .bubble-chip__sub,
+      .hint {
+        color: rgba(237, 245, 255, 0.78);
+        font-size: 0.92rem;
+      }
+
+      .action-row,
+      .selected-list,
+      .bubble-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .selected-list {
+        max-height: 160px;
+        overflow: auto;
+        padding-right: 4px;
+      }
+
+      .sound-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        width: 100%;
+        min-height: 48px;
+        padding: 12px 14px;
+        text-align: left;
+      }
+
+      .sound-toggle.is-active {
+        background: rgba(150, 235, 255, 0.16);
+        border-color: var(--line-strong);
+      }
+
+      .sound-toggle__text {
+        min-width: 0;
+      }
+
+      .sound-toggle__name,
+      .bubble-chip__title {
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .slider-wrap {
+        display: grid;
+        gap: 8px;
+      }
+
+      input[type="range"] {
+        width: 100%;
+        accent-color: var(--accent);
+      }
+
+      .action-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .action-btn,
+      .mini-btn {
+        min-height: 48px;
+        padding: 0 14px;
+      }
+
+      .action-btn.primary {
+        color: #08131e;
+        font-weight: 700;
+        background: linear-gradient(135deg, var(--accent) 0%, #ccf7ff 100%);
+      }
+
+      .action-btn.ghost {
+        background: rgba(150, 235, 255, 0.14);
+        border-color: var(--line-strong);
+      }
+
+      .action-btn.danger {
+        background: rgba(255, 155, 203, 0.12);
+        border-color: rgba(255, 155, 203, 0.24);
+      }
+
+      .bubble-list {
+        max-height: min(28vh, 220px);
+        overflow: auto;
+        padding-right: 4px;
+      }
+
+      .bubble-chip {
+        display: grid;
+        gap: 10px;
+        padding: 12px 14px;
+        border-radius: var(--radius-md);
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .bubble-chip.is-stuck {
+        border-color: rgba(159, 156, 255, 0.38);
+        background: rgba(159, 156, 255, 0.12);
+      }
+
+      .bubble-chip__sub {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .bubble-chip__dot {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .bubble-chip__dot::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+        opacity: 0.9;
+      }
+
+      .bubble-chip__dot.stuck {
+        color: #c4c0ff;
+      }
+
+      .bubble-chip__dot.free {
+        color: #8ef2c4;
+      }
+
+      .hint {
+        font-size: 0.84rem;
+      }
+
+      .toast {
+        position: absolute;
+        left: 50%;
+        bottom: calc(24px + env(safe-area-inset-bottom));
+        transform: translateX(-50%);
+        max-width: min(420px, calc(100vw - 32px));
+        padding: 12px 16px;
+        border-radius: var(--radius-pill);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(11, 15, 29, 0.84);
+        color: var(--text);
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 180ms ease;
+      }
+
+      .toast.is-visible {
+        opacity: 1;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      @media (max-width: 720px) {
+        .cluster {
+          left: max(16px, env(safe-area-inset-left));
+          right: auto;
+          justify-items: start;
+        }
+
+        .hero {
+          max-width: min(420px, calc(100vw - 32px));
+          padding-top: 62px;
+        }
+
+        .panel {
+          width: calc(100vw - 32px);
+        }
+
+        .action-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <div id="scene" aria-hidden="true"></div>
+
+    <div id="app" class="hud">
+      <header class="hero">
+        <div class="eyebrow">Spatial audio instrument</div>
+        <h1>EchoBubbleLoop</h1>
+        <p>
+          Import a personal bubble set, generate a glowing ring of sound around you, then sculpt the mix by moving and
+          tapping bubbles live.
+        </p>
+      </header>
+
+      <div class="cluster">
+        <button id="permissionButton" class="permission-btn" type="button">Enable motion + audio</button>
+        <button id="togglePanelButton" class="toggle-btn" type="button" aria-expanded="true">Hide controls</button>
+      </div>
+
+      <section id="controlPanel" class="panel" aria-label="EchoBubbleLoop controls">
+        <div class="panel-head">
+          <div class="panel-title">
+            <div class="micro">Live scene</div>
+            <h2>Everything happens in one flow.</h2>
+            <div id="statusLine" class="status-line">Import sounds to begin.</div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="row">
+            <div>
+              <div class="micro">Bubble set</div>
+              <strong id="libraryCount">0 sounds saved</strong>
+            </div>
+            <button id="importButton" class="mini-btn" type="button">Import</button>
+          </div>
+          <p>No previews here—your sounds start only when a bubble exists in the scene.</p>
+          <div id="selectedList" class="selected-list"></div>
+          <div id="emptyLibrary" class="empty-state">Import mp3 or wav files to build your loop set.</div>
+        </div>
+
+        <div class="section">
+          <div class="row">
+            <div>
+              <div class="micro">Scene generation</div>
+              <strong id="selectionSummary">Select at least one sound</strong>
+            </div>
+            <div id="bubbleSliderMeta" class="slider-meta">4 bubbles</div>
+          </div>
+          <div class="slider-wrap">
+            <label class="hint" for="bubbleCount">Number of bubbles</label>
+            <input id="bubbleCount" type="range" min="1" max="10" step="1" value="4" />
+          </div>
+          <div class="action-grid">
+            <button id="generateButton" class="action-btn primary" type="button">Generate</button>
+            <button id="addForwardButton" class="action-btn ghost" type="button">Add bubble ahead</button>
+            <button id="undoButton" class="action-btn" type="button">Undo</button>
+            <button id="clearButton" class="action-btn danger" type="button">Clear</button>
+          </div>
+          <div class="hint">Tap a bubble to collé / décoller it. Stuck bubbles follow your forward direction at 0.5 m.</div>
+        </div>
+
+        <div class="section">
+          <div class="row">
+            <div>
+              <div class="micro">Active bubbles</div>
+              <strong id="activeCount">0 live</strong>
+            </div>
+          </div>
+          <div id="bubbleList" class="bubble-list"></div>
+          <div id="emptyScene" class="empty-state">Generate a scene or add a forward bubble to start the soundscape.</div>
+        </div>
+      </section>
+
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+      <input id="fileInput" class="hidden" type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/wave,audio/x-wav" multiple />
+    </div>
+
+    <script type="module" src="/app.js"></script>
   </body>
 </html>
