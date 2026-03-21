@@ -3,10 +3,20 @@ import { useEchoBubbleLoop } from './hooks/useEchoBubbleLoop';
 
 function formatPadStatus(pad) {
   if (!pad.assetId) {
-    return 'Source à connecter';
+    return 'Aucune source';
   }
 
-  return `Loop ${pad.loopBars} mesures · ${pad.volume}% · portée ${pad.range} m`;
+  return `${pad.loopBars} mesures · ${pad.tempo} BPM · ${pad.syncMode}`;
+}
+
+function getPadTone(pad, isActive) {
+  if (isActive) {
+    return 'is-active';
+  }
+  if (pad.assetId) {
+    return 'is-ready';
+  }
+  return 'is-empty';
 }
 
 function App() {
@@ -29,8 +39,6 @@ function App() {
     selectedPlacedBubble,
     selectedPlacedBubbleId,
     toasts,
-    isHudVisible,
-    isMenuOpen,
     isBusy,
     isPlacementArmed,
     previewingId,
@@ -40,9 +48,7 @@ function App() {
     enterAr,
     importAudioFiles,
     selectAsset,
-    addSetBubble,
     updateSetBubble,
-    removeSetBubble,
     setActiveSetBubbleId,
     playSetBubblePreview,
     stopPreview,
@@ -52,8 +58,6 @@ function App() {
     setInteractionMode,
     updatePlacedBubble,
     setSelectedPlacedBubbleId,
-    toggleMenu,
-    dismissMenu,
     clearAllBubbles,
     pingHud,
     toggleMicRecording,
@@ -71,7 +75,6 @@ function App() {
   };
 
   const canEnterAr = readyPadCount > 0 && (isArSupported || isSessionActive) && !isBusy;
-  const selectedPlacedBubbleLabel = selectedPlacedBubble ? selectedPlacedBubble.label : 'Aucune bulle sélectionnée';
   const isBlowerMode = interactionMode === 'blower';
 
   return (
@@ -79,380 +82,378 @@ function App() {
       <div ref={sceneHostRef} className="scene-host" aria-hidden="true" />
 
       <div ref={overlayRootRef} className={`overlay-root ${isSessionActive ? 'is-ar' : ''}`}>
-        {!isSessionActive && (
-          <section className="hero-copy-block hero-copy-block--story">
-            <div className="eyebrow">AR looper bubble instrument</div>
-            <h1>VJ Bulle Loopscape</h1>
-            <p>
-              Le flow tient maintenant en 3 gestes : capturer un son, le caler sur un pad looper,
-              puis le souffler dans l&apos;espace réel avec la caméra du téléphone.
-            </p>
-            <div className="hero-pills">
-              <span>3 pads max</span>
-              <span>Mode éditeur avant AR</span>
-              <span>Souffleur + sticker en AR</span>
-            </div>
-          </section>
-        )}
-
-        <div className={`bottom-dock ${isHudVisible ? 'is-visible' : 'is-dimmed'}`}>
-          <button type="button" className="dock-handle" onClick={toggleMenu}>
-            <span className="dock-handle__meta">{isSessionActive ? 'Session AR' : 'Préparation'}</span>
-            <strong>
-              {isSessionActive
-                ? isBlowerMode
-                  ? isPlacementArmed
-                    ? 'Souffleur armé · touchez la scène'
-                    : 'Mode souffleur'
-                  : 'Mode sticker'
-                : `${readyPadCount}/3 pads prêts à souffler`}
-            </strong>
-          </button>
-        </div>
-
-        <aside className={`bottom-sheet ${isMenuOpen ? 'is-open' : ''}`}>
-          <div className="bottom-sheet__scrim" onClick={dismissMenu} />
-          <div className="bottom-sheet__panel">
-            <div className="bottom-sheet__handle" />
-
-            <div className="sheet-header">
+        {!isSessionActive ? (
+          <main className="studio-shell">
+            <section className="hero-banner glass-panel">
               <div>
-                <p className="sheet-kicker">{isSessionActive ? 'Contrôle live' : 'Préparation rapide'}</p>
-                <h2>{isSessionActive ? 'Looper spatial' : 'Éditeur de pads'}</h2>
+                <p className="eyebrow">Bubble looper instrument</p>
+                <h1>Le sampleur est le cœur de l’app.</h1>
+                <p className="hero-banner__text">
+                  Le flow est maintenant visible dès l’ouverture : choisir une source, la caler sur un pad du sampler,
+                  puis entrer en AR pour souffler la loop dans l’espace réel.
+                </p>
               </div>
-            </div>
+              <div className="hero-stats">
+                <div>
+                  <span className="card-label">Pads prêts</span>
+                  <strong>{readyPadCount}/3</strong>
+                </div>
+                <div>
+                  <span className="card-label">Sources</span>
+                  <strong>{audioLibrary.length}</strong>
+                </div>
+                <div>
+                  <span className="card-label">AR</span>
+                  <strong>{isArSupported ? 'Disponible' : 'Non supportée'}</strong>
+                </div>
+              </div>
+            </section>
 
-            <div className="sheet-scroll">
-              <section className="sheet-card sheet-card--status">
-                <span className="card-label">Flow courant</span>
-                <strong>{readiness}</strong>
-                <p>{availabilityMessage || 'Conservez un seul panneau, des actions directes et un chemin clair jusqu’au souffle.'}</p>
-              </section>
+            <section className="studio-grid">
+              <div className="studio-column studio-column--left">
+                <section className="glass-panel source-panel">
+                  <div className="panel-header">
+                    <div>
+                      <p className="eyebrow">1 · Source rack</p>
+                      <h2>Capture / import</h2>
+                    </div>
+                    <span className="status-pill">Bibliothèque {audioLibrary.length}</span>
+                  </div>
 
-              {!isSessionActive && (
-                <>
-                  <section className="sheet-card sheet-card--step">
-                    <div className="card-row card-row--start">
-                      <div>
-                        <span className="card-label">Étape 1 · Capturer une source</span>
-                        <strong>Importer un son ou enregistrer la voix</strong>
-                      </div>
-                      <span className="step-badge">Bibliothèque {audioLibrary.length}</span>
-                    </div>
-                    <div className="sheet-actions">
-                      <button type="button" className="action-button" onClick={openFilePicker}>
-                        Importer depuis le tel
-                      </button>
-                      <button
-                        type="button"
-                        className={`action-button ${isRecordingMic ? 'action-button--danger' : 'action-button--primary-ghost'}`}
-                        onClick={toggleMicRecording}
-                      >
-                        {isRecordingMic ? 'Stop record voix' : 'Record voix mic'}
-                      </button>
-                      {selectedAsset && (
-                        <button type="button" className="action-button" onClick={stopPreview}>
-                          Stop preview
-                        </button>
-                      )}
-                    </div>
+                  <div className="source-actions">
+                    <button type="button" className="primary-button" onClick={openFilePicker}>
+                      Importer un son
+                    </button>
+                    <button
+                      type="button"
+                      className={`action-button ${isRecordingMic ? 'action-button--danger' : 'action-button--primary-ghost'}`}
+                      onClick={toggleMicRecording}
+                    >
+                      {isRecordingMic ? 'Stop micro' : 'Record voix mic'}
+                    </button>
+                  </div>
+
+                  <label className="field-stack">
+                    <span className="card-label">Source active</span>
                     <select
                       value={selectedAssetId}
                       onChange={(event) => selectAsset(event.target.value)}
                       disabled={!audioLibrary.length}
                     >
-                      {!audioLibrary.length && <option value="">Ajoutez d&apos;abord une source audio</option>}
+                      {!audioLibrary.length && <option value="">Importez ou enregistrez un son</option>}
                       {audioLibrary.map((asset) => (
                         <option key={asset.id} value={asset.id}>
                           {asset.name}
                         </option>
                       ))}
                     </select>
-                    <p>
-                      {selectedAsset
-                        ? `Source active : ${selectedAsset.name}. Affectez-la à un pad pour la caler avant diffusion.`
-                        : 'Une seule librairie source, pas de détour : vous choisissez un son puis vous l’envoyez sur un pad.'}
-                    </p>
-                  </section>
+                  </label>
 
-                  <section className="sheet-card sheet-card--step">
-                    <div className="card-row card-row--start">
-                      <div>
-                        <span className="card-label">Étape 2 · Sampler / looper</span>
-                        <strong>3 pads maximum pour garder le set lisible</strong>
-                      </div>
-                      <span className="step-badge">{readyPadCount}/3 prêts</span>
+                  <div className="source-preview glass-subpanel">
+                    <div>
+                      <span className="card-label">Preview</span>
+                      <strong>{selectedAsset ? selectedAsset.name : 'Aucune source sélectionnée'}</strong>
                     </div>
-                    <div className="sheet-actions">
-                      <button
-                        type="button"
-                        className="action-button action-button--primary-ghost"
-                        onClick={addSetBubble}
-                        disabled={setBubbles.length >= 3}
-                      >
-                        Ajouter un pad
+                    <div className="sheet-actions sheet-actions--tight">
+                      <button type="button" className="action-button" onClick={() => selectedAsset && selectAsset(selectedAsset.id)} disabled={!selectedAsset}>
+                        Écouter
+                      </button>
+                      <button type="button" className="action-button" onClick={stopPreview} disabled={!selectedAsset}>
+                        Stop
                       </button>
                     </div>
-                    <p>
-                      Chaque pad correspond à une loop soufflable. On retire l’étape de validation pour éviter la friction :
-                      dès qu’un pad a une source, il est prêt.
-                    </p>
-                  </section>
+                  </div>
+                </section>
 
-                  {setBubbles.map((bubble) => {
-                    const isPreviewing = previewingId === bubble.id;
+                <section className="glass-panel launch-panel">
+                  <div className="panel-header">
+                    <div>
+                      <p className="eyebrow">3 · Diffusion</p>
+                      <h2>Entrée en AR</h2>
+                    </div>
+                  </div>
+                  <p className="panel-copy">{readiness}</p>
+                  <p className="panel-copy panel-copy--muted">
+                    {availabilityMessage || 'Une fois en AR, tu souffles une loop avec le téléphone puis tu ajustes la bulle en mode sticker.'}
+                  </p>
+                  <button type="button" className="primary-button" onClick={enterAr} disabled={!canEnterAr}>
+                    {isBusy ? 'Starting…' : 'Entrer dans l’espace AR'}
+                  </button>
+                </section>
+              </div>
+
+              <section className="glass-panel sampler-panel">
+                <div className="panel-header">
+                  <div>
+                    <p className="eyebrow">2 · Sampler / looper</p>
+                    <h2>3 pads visibles, éditables, prêts à souffler</h2>
+                  </div>
+                  <span className="status-pill">Pad actif {selectedSetBubble?.label || '—'}</span>
+                </div>
+
+                <div className="sampler-grid">
+                  {setBubbles.map((pad) => {
+                    const isActive = activeSetBubbleId === pad.id;
+                    const isPreviewing = previewingId === pad.id;
                     return (
-                      <section
-                        key={bubble.id}
-                        className={`sheet-card bubble-card ${activeSetBubbleId === bubble.id ? 'is-active' : ''}`}
+                      <button
+                        key={pad.id}
+                        type="button"
+                        className={`sampler-pad ${getPadTone(pad, isActive)}`}
+                        onClick={() => setActiveSetBubbleId(pad.id)}
                       >
-                        <div className="card-row card-row--start">
-                          <label className="radio-chip">
-                            <input
-                              type="radio"
-                              name="active-set-bubble"
-                              checked={activeSetBubbleId === bubble.id}
-                              onChange={() => setActiveSetBubbleId(bubble.id)}
-                            />
-                            <span>{bubble.label}</span>
-                          </label>
-                          <strong>{formatPadStatus(bubble)}</strong>
-                        </div>
-
-                        <label className="field-stack">
-                          <span className="card-label">Source du pad</span>
-                          <select
-                            value={bubble.assetId}
-                            onChange={(event) => updateSetBubble(bubble.id, { assetId: event.target.value })}
-                            disabled={!audioLibrary.length}
-                          >
-                            <option value="">Choisir une source</option>
-                            {audioLibrary.map((asset) => (
-                              <option key={asset.id} value={asset.id}>
-                                {asset.name}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-
-                        <div className="range-grid range-grid--triple">
-                          <label className="field-stack">
-                            <span className="card-label">Sync</span>
-                            <select value={bubble.syncMode} onChange={(event) => updateSetBubble(bubble.id, { syncMode: event.target.value })}>
-                              <option value="Auto">Auto</option>
-                              <option value="Quantize 1 bar">Quantize 1 bar</option>
-                              <option value="Quantize 2 bars">Quantize 2 bars</option>
-                            </select>
-                          </label>
-
-                          <label className="field-stack">
-                            <span className="card-label">Longueur</span>
-                            <select value={bubble.loopBars} onChange={(event) => updateSetBubble(bubble.id, { loopBars: Number(event.target.value) })}>
-                              <option value="1">1 mesure</option>
-                              <option value="2">2 mesures</option>
-                              <option value="4">4 mesures</option>
-                              <option value="8">8 mesures</option>
-                            </select>
-                          </label>
-
-                          <label className="field-stack">
-                            <span className="card-label">Tempo cible</span>
-                            <input
-                              type="range"
-                              min="70"
-                              max="160"
-                              step="1"
-                              value={bubble.tempo}
-                              onChange={(event) => updateSetBubble(bubble.id, { tempo: Number(event.target.value) })}
-                            />
-                            <span className="inline-value">{bubble.tempo} BPM</span>
-                          </label>
-                        </div>
-
-                        <div className="range-grid">
-                          <label className="field-stack">
-                            <span className="card-label">Portée · {bubble.range} m</span>
-                            <input
-                              type="range"
-                              min="2"
-                              max="18"
-                              step="1"
-                              value={bubble.range}
-                              onChange={(event) => updateSetBubble(bubble.id, { range: Number(event.target.value) })}
-                            />
-                          </label>
-
-                          <label className="field-stack">
-                            <span className="card-label">Volume · {bubble.volume}%</span>
-                            <input
-                              type="range"
-                              min="0"
-                              max="100"
-                              step="1"
-                              value={bubble.volume}
-                              onChange={(event) => updateSetBubble(bubble.id, { volume: Number(event.target.value) })}
-                            />
-                          </label>
-                        </div>
-
-                        <div className="sheet-actions sheet-actions--tight">
-                          <button type="button" className="action-button" onClick={() => playSetBubblePreview(bubble.id)} disabled={!bubble.assetId}>
-                            {isPreviewing ? 'Preview en cours' : 'Preview'}
-                          </button>
-                          <button type="button" className="action-button action-button--danger" onClick={() => removeSetBubble(bubble.id)}>
-                            Supprimer le pad
-                          </button>
-                        </div>
-                      </section>
+                        <span className="sampler-pad__corner">{pad.label}</span>
+                        <strong>{pad.assetId ? 'Loop chargée' : 'Pad vide'}</strong>
+                        <span className="sampler-pad__meta">{formatPadStatus(pad)}</span>
+                        <span className="sampler-pad__footer">
+                          {isPreviewing ? 'Preview' : pad.assetId ? 'Prêt à jouer' : 'Sélectionnez une source'}
+                        </span>
+                      </button>
                     );
                   })}
-                </>
-              )}
+                </div>
 
-              {isSessionActive && (
-                <>
-                  <section className="sheet-card sheet-card--step">
-                    <div className="card-row card-row--start">
+                {selectedSetBubble && (
+                  <div className="sampler-editor">
+                    <div className="sampler-editor__head">
                       <div>
-                        <span className="card-label">Étape 3 · Diffusion spatiale</span>
-                        <strong>{isBlowerMode ? 'Souffleur' : 'Sticker'}</strong>
+                        <span className="card-label">Pad sélectionné</span>
+                        <h3>{selectedSetBubble.label}</h3>
                       </div>
-                      <span className="step-badge">{bubbleCount}/8 bulles live</span>
-                    </div>
-                    <div className="sheet-actions">
-                      <button
-                        type="button"
-                        className={`action-button ${isBlowerMode ? 'action-button--primary-ghost' : ''}`}
-                        onClick={() => setInteractionMode('blower')}
-                      >
-                        Mode souffleur
-                      </button>
-                      <button
-                        type="button"
-                        className={`action-button ${!isBlowerMode ? 'action-button--primary-ghost' : ''}`}
-                        onClick={() => setInteractionMode('sticker')}
-                      >
-                        Mode sticker
-                      </button>
-                    </div>
-                    <p>
-                      Le mode souffleur crée une bulle à la position du téléphone. Le mode sticker sert à réviser les bulles
-                      déjà placées sans casser le flow de jeu.
-                    </p>
-                  </section>
-
-                  <section className="sheet-card">
-                    <div className="card-row card-row--start">
-                      <div>
-                        <span className="card-label">Pad actif à souffler</span>
-                        <strong>{selectedSetBubble ? selectedSetBubble.label : 'Sélectionnez un pad'}</strong>
-                      </div>
-                      <span className="step-badge">{selectedSetBubble?.assetId ? 'Prêt' : 'Incomplet'}</span>
-                    </div>
-                    <p>
-                      {selectedSetBubble
-                        ? `${formatPadStatus(selectedSetBubble)} · ${selectedSetBubble.syncMode}.`
-                        : 'Revenez sur un pad configuré pour le souffler dans la scène.'}
-                    </p>
-                    <div className="sheet-actions">
-                      <button
-                        type="button"
-                        className="action-button action-button--primary-ghost"
-                        onClick={armPlacement}
-                        disabled={!selectedSetBubble || interactionMode !== 'blower' || !selectedSetBubble.assetId}
-                      >
-                        {isPlacementArmed ? 'Souffle prêt' : 'Armer le souffleur'}
-                      </button>
-                      {isPlacementArmed && (
-                        <button type="button" className="action-button" onClick={cancelPlacement}>
-                          Annuler
+                      <div className="sheet-actions sheet-actions--tight">
+                        <button
+                          type="button"
+                          className="action-button action-button--primary-ghost"
+                          onClick={() => playSetBubblePreview(selectedSetBubble.id)}
+                          disabled={!selectedSetBubble.assetId}
+                        >
+                          Preview loop
                         </button>
-                      )}
-                    </div>
-                  </section>
-
-                  {bubbleCount > 0 && (
-                    <section className="sheet-card">
-                      <div className="card-row card-row--start">
-                        <div>
-                          <span className="card-label">Bulles posées</span>
-                          <strong>{selectedPlacedBubbleLabel}</strong>
-                        </div>
-                        <button type="button" className="action-button action-button--danger action-button--small" onClick={() => clearAllBubbles(true)}>
-                          Tout vider
+                        <button type="button" className="action-button" onClick={stopPreview}>
+                          Stop
                         </button>
                       </div>
+                    </div>
 
-                      <div className="bubble-list">
-                        {placedBubbles.map((bubble) => (
-                          <button
-                            key={bubble.id}
-                            type="button"
-                            className={`bubble-list__item bubble-list__item--button ${selectedPlacedBubbleId === bubble.id ? 'is-selected' : ''}`}
-                            onClick={() => setSelectedPlacedBubbleId(bubble.id)}
-                          >
-                            <div>
-                              <strong>{bubble.label}</strong>
-                              <p>{bubble.assetName} · {bubble.range} m · {bubble.volume}%</p>
-                            </div>
-                            <span className="pill-state">{bubble.isPlaying ? 'Live' : 'Pause'}</span>
-                          </button>
-                        ))}
-                      </div>
+                    <div className="sampler-editor__grid">
+                      <label className="field-stack">
+                        <span className="card-label">Source assignée</span>
+                        <select
+                          value={selectedSetBubble.assetId}
+                          onChange={(event) => updateSetBubble(selectedSetBubble.id, { assetId: event.target.value })}
+                          disabled={!audioLibrary.length}
+                        >
+                          <option value="">Choisir une source</option>
+                          {audioLibrary.map((asset) => (
+                            <option key={asset.id} value={asset.id}>
+                              {asset.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
 
-                      {selectedPlacedBubble && (
-                        <div className="editor-panel">
-                          <div className="range-grid">
-                            <label className="field-stack">
-                              <span className="card-label">Volume bubble · {selectedPlacedBubble.volume}%</span>
-                              <input
-                                type="range"
-                                min="0"
-                                max="100"
-                                step="1"
-                                value={selectedPlacedBubble.volume}
-                                onChange={(event) => updatePlacedBubble(selectedPlacedBubble.id, { volume: Number(event.target.value) })}
-                              />
-                            </label>
+                      <label className="field-stack">
+                        <span className="card-label">Sync / quantize</span>
+                        <select
+                          value={selectedSetBubble.syncMode}
+                          onChange={(event) => updateSetBubble(selectedSetBubble.id, { syncMode: event.target.value })}
+                        >
+                          <option value="Auto">Auto</option>
+                          <option value="Quantize 1 bar">Quantize 1 bar</option>
+                          <option value="Quantize 2 bars">Quantize 2 bars</option>
+                        </select>
+                      </label>
 
-                            <label className="field-stack">
-                              <span className="card-label">Portée bubble · {selectedPlacedBubble.range} m</span>
-                              <input
-                                type="range"
-                                min="2"
-                                max="18"
-                                step="1"
-                                value={selectedPlacedBubble.range}
-                                onChange={(event) => updatePlacedBubble(selectedPlacedBubble.id, { range: Number(event.target.value) })}
-                              />
-                            </label>
-                          </div>
+                      <label className="field-stack">
+                        <span className="card-label">Longueur de loop</span>
+                        <select
+                          value={selectedSetBubble.loopBars}
+                          onChange={(event) => updateSetBubble(selectedSetBubble.id, { loopBars: Number(event.target.value) })}
+                        >
+                          <option value="1">1 mesure</option>
+                          <option value="2">2 mesures</option>
+                          <option value="4">4 mesures</option>
+                          <option value="8">8 mesures</option>
+                        </select>
+                      </label>
+                    </div>
 
-                          <div className="sheet-actions sheet-actions--tight">
-                            <button type="button" className="action-button" onClick={() => togglePlacedBubbleAudio(selectedPlacedBubble.id)}>
-                              {selectedPlacedBubble.isPlaying ? 'Pause audio' : 'Relancer audio'}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </section>
+                    <div className="mixer-grid">
+                      <label className="slider-card">
+                        <span className="card-label">Tempo cible</span>
+                        <strong>{selectedSetBubble.tempo} BPM</strong>
+                        <input
+                          type="range"
+                          min="70"
+                          max="160"
+                          step="1"
+                          value={selectedSetBubble.tempo}
+                          onChange={(event) => updateSetBubble(selectedSetBubble.id, { tempo: Number(event.target.value) })}
+                        />
+                      </label>
+
+                      <label className="slider-card">
+                        <span className="card-label">Volume au souffle</span>
+                        <strong>{selectedSetBubble.volume}%</strong>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          step="1"
+                          value={selectedSetBubble.volume}
+                          onChange={(event) => updateSetBubble(selectedSetBubble.id, { volume: Number(event.target.value) })}
+                        />
+                      </label>
+
+                      <label className="slider-card">
+                        <span className="card-label">Portée spatiale</span>
+                        <strong>{selectedSetBubble.range} m</strong>
+                        <input
+                          type="range"
+                          min="2"
+                          max="18"
+                          step="1"
+                          value={selectedSetBubble.range}
+                          onChange={(event) => updateSetBubble(selectedSetBubble.id, { range: Number(event.target.value) })}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                )}
+              </section>
+            </section>
+          </main>
+        ) : (
+          <main className="ar-shell">
+            <section className="glass-panel ar-control-panel">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">Session AR</p>
+                  <h2>{isBlowerMode ? 'Mode souffleur' : 'Mode sticker'}</h2>
+                </div>
+                <span className="status-pill">{bubbleCount}/8 bulles live</span>
+              </div>
+
+              <div className="mode-switch">
+                <button
+                  type="button"
+                  className={`mode-switch__button ${isBlowerMode ? 'is-selected' : ''}`}
+                  onClick={() => setInteractionMode('blower')}
+                >
+                  Souffleur
+                </button>
+                <button
+                  type="button"
+                  className={`mode-switch__button ${!isBlowerMode ? 'is-selected' : ''}`}
+                  onClick={() => setInteractionMode('sticker')}
+                >
+                  Sticker
+                </button>
+              </div>
+
+              <div className="glass-subpanel ar-active-pad">
+                <div>
+                  <span className="card-label">Pad prêt</span>
+                  <strong>{selectedSetBubble ? selectedSetBubble.label : 'Sélectionnez un pad'}</strong>
+                  <p>{selectedSetBubble ? formatPadStatus(selectedSetBubble) : 'Revenez sur le sampleur pour assigner une source.'}</p>
+                </div>
+                <div className="sheet-actions">
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={armPlacement}
+                    disabled={!selectedSetBubble || !selectedSetBubble.assetId || interactionMode !== 'blower'}
+                  >
+                    {isPlacementArmed ? 'Souffleur armé' : 'Souffler cette loop'}
+                  </button>
+                  {isPlacementArmed && (
+                    <button type="button" className="action-button" onClick={cancelPlacement}>
+                      Annuler
+                    </button>
                   )}
-                </>
-              )}
-            </div>
+                </div>
+              </div>
 
-            <div className="sheet-footer">
-              <button
-                type="button"
-                className="primary-button"
-                onClick={enterAr}
-                disabled={!canEnterAr}
-              >
-                {isBusy ? 'Starting…' : isSessionActive ? 'Quitter AR' : 'Entrer dans l’espace AR'}
+              <button type="button" className="action-button action-button--wide" onClick={enterAr}>
+                Quitter AR
               </button>
-            </div>
-          </div>
-        </aside>
+            </section>
+
+            <section className="glass-panel ar-bubbles-panel">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">Bulles placées</p>
+                  <h2>Édition live</h2>
+                </div>
+                <button type="button" className="action-button action-button--danger" onClick={() => clearAllBubbles(true)}>
+                  Tout vider
+                </button>
+              </div>
+
+              <p className="panel-copy">{readiness}</p>
+
+              <div className="bubble-chip-list">
+                {placedBubbles.map((bubble) => (
+                  <button
+                    key={bubble.id}
+                    type="button"
+                    className={`bubble-chip ${selectedPlacedBubbleId === bubble.id ? 'is-selected' : ''}`}
+                    onClick={() => setSelectedPlacedBubbleId(bubble.id)}
+                  >
+                    <strong>{bubble.label}</strong>
+                    <span>{bubble.assetName}</span>
+                  </button>
+                ))}
+              </div>
+
+              {selectedPlacedBubble ? (
+                <div className="editor-panel">
+                  <div className="panel-header panel-header--compact">
+                    <div>
+                      <span className="card-label">Bulle sélectionnée</span>
+                      <strong>{selectedPlacedBubble.label}</strong>
+                    </div>
+                    <span className="status-pill">{selectedPlacedBubble.isPlaying ? 'Live' : 'Pause'}</span>
+                  </div>
+
+                  <div className="mixer-grid mixer-grid--compact">
+                    <label className="slider-card">
+                      <span className="card-label">Volume</span>
+                      <strong>{selectedPlacedBubble.volume}%</strong>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={selectedPlacedBubble.volume}
+                        onChange={(event) => updatePlacedBubble(selectedPlacedBubble.id, { volume: Number(event.target.value) })}
+                      />
+                    </label>
+
+                    <label className="slider-card">
+                      <span className="card-label">Portée</span>
+                      <strong>{selectedPlacedBubble.range} m</strong>
+                      <input
+                        type="range"
+                        min="2"
+                        max="18"
+                        step="1"
+                        value={selectedPlacedBubble.range}
+                        onChange={(event) => updatePlacedBubble(selectedPlacedBubble.id, { range: Number(event.target.value) })}
+                      />
+                    </label>
+                  </div>
+
+                  <button type="button" className="action-button" onClick={() => togglePlacedBubbleAudio(selectedPlacedBubble.id)}>
+                    {selectedPlacedBubble.isPlaying ? 'Mettre en pause' : 'Relancer la loop'}
+                  </button>
+                </div>
+              ) : (
+                <div className="empty-state">Soufflez une première bulle pour ouvrir l’édition sticker.</div>
+              )}
+            </section>
+          </main>
+        )}
 
         <div className="toast-stack" aria-live="polite" aria-atomic="true">
           {toasts.map((toast) => (

@@ -87,8 +87,12 @@ export function useEchoBubbleLoop() {
 
   const [audioLibrary, setAudioLibrary] = useState([]);
   const [selectedAssetId, setSelectedAssetId] = useState('');
-  const [setBubbles, setSetBubbles] = useState([]);
-  const [activeSetBubbleId, setActiveSetBubbleId] = useState('');
+  const [setBubbles, setSetBubbles] = useState(() => [
+    createSetBubbleDefinition('set-bubble-1'),
+    createSetBubbleDefinition('set-bubble-2'),
+    createSetBubbleDefinition('set-bubble-3'),
+  ]);
+  const [activeSetBubbleId, setActiveSetBubbleId] = useState('set-bubble-1');
   const [interactionMode, setInteractionModeState] = useState('blower');
   const [isArSupported, setIsArSupported] = useState(true);
   const [availabilityMessage, setAvailabilityMessage] = useState('');
@@ -403,17 +407,8 @@ export function useEchoBubbleLoop() {
   }, [createBubble, destroyBubble, postToast]);
 
   const addSetBubble = useCallback(() => {
-    if (setBubbles.length >= MAX_SET_BUBBLES) {
-      postToast(`Le sampler est volontairement limité à ${MAX_SET_BUBBLES} pads.`, 'warning');
-      return;
-    }
-
-    const nextId = `set-bubble-${++setBubbleCounterRef.current}`;
-    const bubble = createSetBubbleDefinition(nextId, selectedAssetId);
-    setSetBubbles((current) => [...current, bubble]);
-    setActiveSetBubbleId(nextId);
-    postToast('Pad ajouté. Assignez-lui une source et réglez sa loop.', 'neutral');
-  }, [postToast, selectedAssetId, setBubbles.length]);
+    postToast(`Le sampler affiche déjà ses ${MAX_SET_BUBBLES} pads fixes.`, 'neutral');
+  }, [postToast]);
 
   const updateSetBubble = useCallback((bubbleId, patch) => {
     setSetBubbles((current) => current.map((bubble) => {

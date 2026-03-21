@@ -17,6 +17,7 @@ npm run build
 
 ## Flow UX retenu
 
+- **Un vrai sampleur visible au centre de l’UI** : 3 pads fixes sont affichés dès l’ouverture, pour que le concept soit immédiatement lisible.
 - **Un seul écran de préparation** : plus de validation/sauvegarde intermédiaire du set ; un pad devient utilisable dès qu’une source lui est affectée.
 - **3 pads maximum** : limite volontaire pour conserver un flow live lisible et mobile-first.
 - **Deux modes AR clairs** :
