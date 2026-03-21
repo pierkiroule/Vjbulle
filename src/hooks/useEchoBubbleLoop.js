@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 
-const MAX_PADS = 8;
+const MAX_PADS = 3;
 const MAX_BUBBLES = 8;
 const DEFAULT_RANGE = 6;
 const DEFAULT_GAIN = 0.3;
@@ -212,7 +212,6 @@ export function useEchoBubbleLoop() {
   const [toasts, setToasts] = useState([]);
   const [pendingPadId, setPendingPadId] = useState('');
   const [isRecordingMic, setIsRecordingMic] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [placedBubbleRevision, setPlacedBubbleRevision] = useState(0);
 
   const bpm = DEFAULT_BPM;
@@ -642,7 +641,6 @@ export function useEchoBubbleLoop() {
     xrSessionRef.current?.removeEventListener('selectend', handleSelectEnd);
     xrSessionRef.current = null;
     setIsSessionActive(false);
-    setMenuOpen(false);
     postToast('Session AR terminée.', 'neutral');
   }, [handleSelectEnd, handleSelectStart, postToast]);
 
@@ -674,7 +672,6 @@ export function useEchoBubbleLoop() {
       await rendererRef.current.xr.setSession(session);
 
       setIsSessionActive(true);
-      setMenuOpen(false);
       pingHud();
       postToast('AR prête · tape une bulle pour coller, appui long pour la percer.', 'success');
     } catch (error) {
@@ -695,12 +692,12 @@ export function useEchoBubbleLoop() {
       return availabilityMessage;
     }
     if (!pads.some((pad) => pad.buffer)) {
-      return 'Charge un sample, puis souffle une bulle sur le beat.';
+      return 'Charge un sample puis souffle une bulle.';
     }
     if (!isSessionActive) {
-      return 'Entre en AR puis tape un pad pour créer une bulle looper.';
+      return 'Entre en AR puis tape un pad.';
     }
-    return 'Tap pad = bubble on beat · tap bubble = coller · long press = pop.';
+    return 'Pad = souffler · panneau = éditer · tap bulle = coller.';
   }, [availabilityMessage, isArSupported, isSessionActive, pads]);
 
   useEffect(() => {
@@ -720,6 +717,7 @@ export function useEchoBubbleLoop() {
 
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x000000, 0);
     renderer.xr.enabled = true;
 
     if (sceneHostRef.current) {
@@ -885,7 +883,6 @@ export function useEchoBubbleLoop() {
     isBusy,
     pendingPadId,
     isRecordingMic,
-    menuOpen,
     activePadCount,
     readiness,
     toasts,
@@ -896,8 +893,9 @@ export function useEchoBubbleLoop() {
     handleImportedFiles,
     toggleMicRecording,
     placeBubbleFromPad,
+    toggleBubbleAttachment,
+    popBubble,
     clearAllBubbles,
     setPendingPadId,
-    setMenuOpen,
   };
 }

@@ -1,129 +1,19 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
   <head>
     <meta charset="UTF-8" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no"
     />
-    <title>EchoBubbleLoop</title>
+    <title>AR Bubble Looper</title>
     <meta
       name="description"
-      content="EchoBubbleLoop is a full WebXR AR audio looper for sculpting floating spatial sound bubbles."
+      content="AR Bubble Looper est un looper audio WebXR pour souffler et éditer des bulles sonores dans l’espace."
     />
-    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div id="xr-root"></div>
-
-    <div id="overlay" class="overlay">
-      <div id="ar-crosshair" class="ar-crosshair hidden" aria-hidden="true"></div>
-
-      <header id="top-bar" class="top-bar glass">
-        <div class="brand-copy">
-          <div class="eyebrow">EchoBubbleLoop</div>
-          <h1>Spatial AR looper</h1>
-          <p class="subtle">Sculpt living sound bubbles around you in real space.</p>
-        </div>
-        <div class="top-actions">
-          <button id="enter-ar" class="primary-btn">Enter AR</button>
-          <button id="config-toggle" class="icon-btn" aria-label="Toggle config">⚙️</button>
-        </div>
-      </header>
-
-      <section id="support-banner" class="support-banner glass hidden">
-        AR not supported on this device
-      </section>
-
-      <section id="status-pill" class="status-pill glass">
-        <span id="status-text">Load a pad, enter AR, and place a loop on the beat.</span>
-        <span id="tempo-text">90 BPM</span>
-      </section>
-
-      <aside id="config-panel" class="floating-panel config-panel glass hidden">
-        <div class="panel-head">
-          <div>
-            <div class="eyebrow">Config</div>
-            <h2>Session controls</h2>
-          </div>
-          <button id="clear-pads" class="ghost-btn">Clear pads</button>
-        </div>
-
-        <div class="config-grid">
-          <button id="import-audio" class="ghost-btn wide">Import audio</button>
-          <button id="clear-bubbles" class="ghost-btn wide">Clear bubbles</button>
-          <div class="config-stat">
-            <span>Tempo</span>
-            <strong id="config-bpm">90 BPM</strong>
-          </div>
-          <div class="config-stat">
-            <span>Bubbles</span>
-            <strong id="bubble-count">0 / 8</strong>
-          </div>
-        </div>
-      </aside>
-
-      <button id="create-btn" class="ar-create-btn glass hidden" aria-label="Create bubble">＋</button>
-
-      <button id="source-toggle" class="panel-toggle glass hidden" aria-label="Toggle pad source panel">＋</button>
-      <section id="source-sheet" class="floating-panel source-sheet glass hidden">
-        <div class="panel-head tight">
-          <div>
-            <div class="eyebrow">Pad source</div>
-            <h2 id="source-title">Load pad</h2>
-          </div>
-          <button id="close-source" class="ghost-btn">Minimize</button>
-        </div>
-        <div class="source-actions">
-          <button id="source-import" class="ghost-btn wide">Import file</button>
-          <button id="source-record" class="ghost-btn wide">Record mic</button>
-        </div>
-        <div id="recording-note" class="panel-note hidden">Recording… tap stop when the loop feels right.</div>
-      </section>
-
-      <button id="bubble-toggle" class="panel-toggle glass hidden" aria-label="Toggle bubble panel">◌</button>
-      <section id="bubble-panel" class="floating-panel bubble-panel glass hidden" aria-live="polite">
-        <div class="panel-head tight">
-          <div>
-            <div class="eyebrow">Bubble</div>
-            <h2 id="bubble-title">Selected bubble</h2>
-          </div>
-          <button id="bubble-stick" class="ghost-btn">Coller</button>
-        </div>
-
-        <label class="slider-row">
-          <span>Range</span>
-          <input id="range-slider" type="range" min="0.8" max="6" step="0.05" />
-          <strong id="range-value">2.4 m</strong>
-        </label>
-
-        <label class="slider-row">
-          <span>Gain</span>
-          <input id="gain-slider" type="range" min="0" max="1.4" step="0.01" />
-          <strong id="gain-value">0.80</strong>
-        </label>
-
-        <div class="bubble-actions">
-          <button id="bubble-delete" class="ghost-btn wide">Delete</button>
-        </div>
-      </section>
-
-      <footer id="bottom-dock" class="bottom-dock glass is-collapsed">
-        <div class="dock-head">
-          <button id="dock-toggle" class="dock-toggle">Pads</button>
-          <div class="dock-note">Fast access to samples without blocking the AR view.</div>
-          <button id="undo-btn" class="ghost-btn">Undo</button>
-        </div>
-        <div id="dock-body" class="dock-body hidden">
-          <div class="pad-carousel-wrap">
-            <div id="pad-carousel" class="pad-carousel"></div>
-          </div>
-        </div>
-      </footer>
-    </div>
-
-    <input id="file-input" type="file" accept="audio/*" hidden />
-
-    <script type="module" src="/app.js"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
