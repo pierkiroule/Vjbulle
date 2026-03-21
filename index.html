@@ -9,705 +9,114 @@
     <title>EchoBubbleLoop</title>
     <meta
       name="description"
-      content="EchoBubbleLoop is a fullscreen AR spatial-audio instrument with glowing bubbles you touch to wake and sculpt."
+      content="EchoBubbleLoop is a full WebXR AR audio looper for sculpting floating spatial sound bubbles."
     />
-    <style>
-      :root {
-        color-scheme: dark;
-        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        --bg: #060813;
-        --panel: rgba(9, 12, 24, 0.72);
-        --panel-strong: rgba(12, 16, 30, 0.84);
-        --line: rgba(255, 255, 255, 0.12);
-        --line-strong: rgba(129, 226, 255, 0.28);
-        --text: #edf5ff;
-        --muted: rgba(237, 245, 255, 0.68);
-        --accent: #8ce7ff;
-        --accent-strong: #d9f8ff;
-        --danger: #ff9ec8;
-        --shadow: 0 20px 60px rgba(0, 0, 0, 0.36);
-        --radius-xl: 28px;
-        --radius-lg: 20px;
-        --radius-md: 16px;
-        --radius-pill: 999px;
-      }
-
-      * {
-        box-sizing: border-box;
-        -webkit-tap-highlight-color: transparent;
-      }
-
-      html,
-      body {
-        width: 100%;
-        height: 100%;
-        margin: 0;
-        overflow: hidden;
-        background:
-          radial-gradient(circle at top, rgba(76, 118, 255, 0.16), transparent 34%),
-          radial-gradient(circle at bottom, rgba(73, 224, 255, 0.1), transparent 28%),
-          linear-gradient(180deg, #0a1020 0%, var(--bg) 100%);
-        color: var(--text);
-      }
-
-      body::before {
-        content: '';
-        position: fixed;
-        inset: 0;
-        pointer-events: none;
-        background:
-          radial-gradient(circle at center, rgba(255, 255, 255, 0.04), transparent 52%),
-          linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 24%, rgba(255, 255, 255, 0.02));
-      }
-
-      button,
-      input {
-        font: inherit;
-        border: 0;
-        outline: none;
-      }
-
-      button {
-        cursor: pointer;
-      }
-
-      button:disabled,
-      input:disabled {
-        cursor: not-allowed;
-        opacity: 0.45;
-      }
-
-      #scene,
-      #app {
-        position: fixed;
-        inset: 0;
-      }
-
-      #scene canvas {
-        display: block;
-      }
-
-      .overlay {
-        pointer-events: none;
-        padding:
-          max(16px, env(safe-area-inset-top))
-          max(16px, env(safe-area-inset-right))
-          max(16px, env(safe-area-inset-bottom))
-          max(16px, env(safe-area-inset-left));
-      }
-
-      .overlay::after {
-        content: '';
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 28%, rgba(255, 255, 255, 0.02));
-        opacity: 1;
-        transition: opacity 220ms ease;
-      }
-
-      .overlay.is-ar::after {
-        opacity: 0.15;
-      }
-
-      .glass,
-      .dock,
-      .toast,
-      .chip {
-        backdrop-filter: blur(18px) saturate(1.14);
-        -webkit-backdrop-filter: blur(18px) saturate(1.14);
-      }
-
-      .intro {
-        position: absolute;
-        top: max(14px, env(safe-area-inset-top));
-        left: max(16px, env(safe-area-inset-left));
-        right: max(16px, env(safe-area-inset-right));
-        width: auto;
-        display: grid;
-        gap: 10px;
-        pointer-events: auto;
-        transition: opacity 240ms ease, transform 240ms ease;
-      }
-
-      .overlay.is-ar .intro {
-        opacity: 0;
-        transform: translateY(-16px);
-        pointer-events: none;
-      }
-
-      .eyebrow,
-      .micro,
-      .status,
-      .hint,
-      .empty,
-      .step {
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        font-size: 0.74rem;
-        color: var(--muted);
-      }
-
-      h1,
-      h2,
-      p {
-        margin: 0;
-      }
-
-      .intro h1 {
-        font-size: clamp(2.35rem, 10vw, 4.4rem);
-        line-height: 0.92;
-        max-width: 8ch;
-      }
-
-      .intro p {
-        max-width: 46ch;
-        color: rgba(237, 245, 255, 0.84);
-      }
-
-      .intro-actions,
-      .panel-actions,
-      .action-grid,
-      .asset-list,
-      .bubble-list,
-      .carousel-track,
-      .carousel-dots {
-        display: grid;
-        gap: 10px;
-      }
-
-      .intro-actions {
-        grid-template-columns: 1fr;
-      }
-
-      .panel-shell {
-        position: absolute;
-        left: max(12px, env(safe-area-inset-left));
-        right: max(12px, env(safe-area-inset-right));
-        bottom: calc(76px + env(safe-area-inset-bottom));
-        width: auto;
-        max-width: 100%;
-        pointer-events: auto;
-        transition: opacity 240ms ease, transform 240ms ease;
-      }
-
-      .panel-shell.is-faded {
-        opacity: 0.06;
-        transform: translateY(10px);
-        pointer-events: none;
-      }
-
-      .panel {
-        display: grid;
-        grid-template-rows: auto minmax(0, 1fr);
-        gap: 12px;
-        min-height: 0;
-        max-height: min(46vh, 420px);
-        overflow: hidden;
-        padding: 14px;
-        border-radius: 24px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.05)),
-          var(--panel-strong);
-        box-shadow: var(--shadow);
-      }
-
-      .panel-head,
-      .row,
-      .bubble-meta,
-      .asset-meta {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-      }
-
-      .panel-head,
-      .row {
-        align-items: flex-start;
-        flex-direction: column;
-      }
-
-      .section {
-        display: grid;
-        gap: 10px;
-        padding: 12px;
-        border-radius: 18px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(255, 255, 255, 0.04);
-      }
-
-      .carousel-shell {
-        display: grid;
-        grid-template-rows: minmax(0, 1fr) auto auto;
-        gap: 12px;
-        min-height: 0;
-      }
-
-      .carousel-viewport {
-        overflow: hidden;
-        min-height: 0;
-      }
-
-      .carousel-track {
-        height: 100%;
-        grid-auto-flow: column;
-        grid-auto-columns: 100%;
-        gap: 12px;
-        transition: transform 240ms ease;
-        will-change: transform;
-      }
-
-      .carousel-slide {
-        min-width: 0;
-        min-height: 0;
-        overflow: hidden;
-      }
-
-      .carousel-slide > .section {
-        height: 100%;
-        min-height: 0;
-        overflow: auto;
-        overscroll-behavior: contain;
-        -webkit-overflow-scrolling: touch;
-      }
-
-      .carousel-nav {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-      }
-
-      .carousel-dots {
-        grid-auto-flow: column;
-        grid-auto-columns: 10px;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-      }
-
-      .carousel-dot {
-        width: 10px;
-        height: 10px;
-        padding: 0;
-        border-radius: 999px;
-        border: 0;
-        background: rgba(255, 255, 255, 0.18);
-      }
-
-      .carousel-dot.is-active {
-        background: var(--accent);
-        box-shadow: 0 0 0 4px rgba(140, 231, 255, 0.16);
-      }
-
-      .carousel-label {
-        min-width: 92px;
-        text-align: center;
-      }
-
-      .panel p,
-      .asset-sub,
-      .bubble-sub {
-        color: rgba(237, 245, 255, 0.8);
-        font-size: 0.92rem;
-      }
-
-      .action-btn,
-      .primary-btn,
-      .secondary-btn,
-      .asset-toggle,
-      .dock,
-      .mini-btn,
-      .icon-btn {
-        color: var(--text);
-        border-radius: var(--radius-pill);
-        border: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.08);
-        transition: transform 160ms ease, background 160ms ease, border-color 160ms ease, opacity 160ms ease;
-      }
-
-      .action-btn:active,
-      .primary-btn:active,
-      .secondary-btn:active,
-      .asset-toggle:active,
-      .dock:active,
-      .mini-btn:active,
-      .icon-btn:active {
-        transform: scale(0.98);
-      }
-
-      .primary-btn,
-      .secondary-btn,
-      .dock,
-      .action-btn,
-      .mini-btn {
-        min-height: 48px;
-        padding: 0 16px;
-      }
-
-      .primary-btn {
-        color: #07131c;
-        font-weight: 700;
-        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
-      }
-
-      .secondary-btn {
-        background: rgba(255, 255, 255, 0.08);
-      }
-
-      .action-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .action-btn.ghost {
-        background: rgba(140, 231, 255, 0.14);
-        border-color: var(--line-strong);
-      }
-
-      .action-btn.danger {
-        background: rgba(255, 158, 200, 0.12);
-        border-color: rgba(255, 158, 200, 0.24);
-      }
-
-      .slider-wrap {
-        display: grid;
-        gap: 8px;
-      }
-
-      input[type='range'] {
-        width: 100%;
-        accent-color: var(--accent);
-      }
-
-      .asset-list,
-      .bubble-list {
-        max-height: min(24vh, 220px);
-        overflow: auto;
-        padding-right: 4px;
-      }
-
-      .asset-toggle,
-      .bubble-card {
-        display: grid;
-        gap: 8px;
-        width: 100%;
-        padding: 12px 14px;
-        text-align: left;
-      }
-
-      .asset-toggle.is-active {
-        background: rgba(140, 231, 255, 0.15);
-        border-color: var(--line-strong);
-      }
-
-      .asset-name,
-      .bubble-title {
-        font-weight: 600;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .bubble-card {
-        border-radius: var(--radius-md);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(255, 255, 255, 0.04);
-      }
-
-      .bubble-card.is-silent {
-        border-color: rgba(255, 201, 115, 0.24);
-        background: rgba(255, 201, 115, 0.08);
-      }
-
-      .bubble-card.is-stuck {
-        border-color: rgba(167, 159, 255, 0.28);
-        background: rgba(167, 159, 255, 0.12);
-      }
-
-      .bubble-sub {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-      }
-
-      .tag {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-      }
-
-      .tag::before {
-        content: '';
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: currentColor;
-      }
-
-      .tag.live {
-        color: #95efc8;
-      }
-
-      .tag.silent {
-        color: #ffc973;
-      }
-
-      .tag.stuck {
-        color: #c9c2ff;
-      }
-
-      .tag.free {
-        color: #98e8ff;
-      }
-
-      .dock {
-        position: absolute;
-        left: 50%;
-        bottom: calc(12px + env(safe-area-inset-bottom));
-        transform: translateX(-50%);
-        pointer-events: auto;
-        box-shadow: var(--shadow);
-      }
-
-      .status-stack {
-        display: none;
-      }
-
-      .chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        min-height: 40px;
-        padding: 0 14px;
-        width: 100%;
-        border-radius: var(--radius-pill);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: var(--panel);
-        box-shadow: var(--shadow);
-      }
-
-      .overlay.is-ar .intro {
-        opacity: 0;
-        transform: translateY(-16px);
-        pointer-events: none;
-      }
-
-      .overlay.is-ar .panel {
-        max-height: min(34vh, 320px);
-      }
-
-      .chip::before {
-        content: '';
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: currentColor;
-      }
-
-      .chip.active {
-        color: var(--accent);
-      }
-
-      .chip.idle {
-        color: rgba(237, 245, 255, 0.72);
-      }
-
-      .toast {
-        position: absolute;
-        left: 50%;
-        bottom: calc(24px + env(safe-area-inset-bottom));
-        transform: translateX(-50%);
-        max-width: min(420px, calc(100vw - 32px));
-        padding: 12px 16px;
-        border-radius: var(--radius-pill);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(9, 12, 24, 0.88);
-        opacity: 0;
-        transition: opacity 180ms ease;
-        pointer-events: none;
-      }
-
-      .toast.is-visible {
-        opacity: 1;
-      }
-
-      .hidden {
-        display: none !important;
-      }
-
-      @media (min-width: 721px) {
-        .intro {
-          left: max(16px, env(safe-area-inset-left));
-          right: auto;
-          width: min(560px, calc(100vw - 32px));
-          gap: 12px;
-        }
-
-        .intro h1 {
-          font-size: clamp(2.8rem, 10vw, 5.8rem);
-          max-width: 9ch;
-        }
-
-        .intro p {
-          max-width: 56ch;
-        }
-
-        .intro-actions {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
-        .chip {
-          width: auto;
-        }
-
-        .panel-shell {
-          left: max(16px, env(safe-area-inset-left));
-          right: max(16px, env(safe-area-inset-right));
-          bottom: calc(88px + env(safe-area-inset-bottom));
-          width: min(440px, calc(100vw - 32px));
-        }
-
-        .panel {
-          gap: 14px;
-          max-height: min(48vh, 420px);
-          padding: 16px;
-          border-radius: var(--radius-xl);
-        }
-
-        .panel-head,
-        .row {
-          flex-direction: row;
-        }
-
-        .section {
-          padding: 14px;
-          border-radius: var(--radius-lg);
-        }
-
-        .action-grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
-        .asset-list,
-        .bubble-list {
-          max-height: 24vh;
-        }
-
-        .dock {
-          left: auto;
-          right: max(16px, env(safe-area-inset-right));
-          bottom: calc(16px + env(safe-area-inset-bottom));
-          transform: none;
-        }
-      }
-    </style>
+    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div id="scene" aria-hidden="true"></div>
+    <div id="xr-root"></div>
 
-    <div id="app" class="overlay">
-      <header id="intro" class="intro">
-        <div class="eyebrow">Fullscreen AR spatial instrument</div>
-        <h1>EchoBubbleLoop</h1>
-        <p>
-          Import your sounds, enter AR, generate a ring around yourself, then touch each bubble to wake its audio and
-          sculpt the soundscape in motion.
-        </p>
-        <div class="intro-actions">
-          <button id="enterArButton" class="primary-btn" type="button">Enter AR</button>
-          <button id="importButton" class="secondary-btn" type="button">Import sounds</button>
+    <div id="overlay" class="overlay">
+      <header id="top-bar" class="top-bar glass">
+        <div class="brand-copy">
+          <div class="eyebrow">EchoBubbleLoop</div>
+          <h1>Spatial AR looper</h1>
+          <p class="subtle">Sculpt living sound bubbles around you in real space.</p>
+        </div>
+        <div class="top-actions">
+          <button id="enter-ar" class="primary-btn">Enter AR</button>
+          <button id="config-toggle" class="icon-btn" aria-label="Toggle config">⚙️</button>
         </div>
       </header>
 
-      <div class="status-stack">
-        <div id="sessionChip" class="chip idle">AR not started</div>
-        <div id="focusChip" class="chip idle">Touch bubbles to wake sound</div>
-      </div>
+      <section id="support-banner" class="support-banner glass hidden">
+        AR not supported on this device
+      </section>
 
-      <div id="panelShell" class="panel-shell">
-        <section id="controlPanel" class="panel glass" aria-label="EchoBubbleLoop controls">
-          <div class="panel-head">
-            <div>
-              <div class="micro">Live controls</div>
-              <h2>One scene. One gesture flow.</h2>
-              <div id="statusLine" class="status">Import sounds, then enter AR.</div>
-            </div>
-            <button id="exitArButton" class="mini-btn hidden" type="button">Exit AR</button>
+      <section id="status-pill" class="status-pill glass">
+        <span id="status-text">Load a pad, enter AR, and place a loop on the beat.</span>
+        <span id="tempo-text">90 BPM</span>
+      </section>
+
+      <aside id="config-panel" class="floating-panel config-panel glass hidden">
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">Config</div>
+            <h2>Session controls</h2>
           </div>
+          <button id="clear-pads" class="ghost-btn">Clear pads</button>
+        </div>
 
-          <div class="carousel-shell">
-            <div class="carousel-viewport">
-              <div id="carouselTrack" class="carousel-track">
-                <div class="carousel-slide">
-                  <div class="section">
-                    <div class="row">
-                      <div>
-                        <div class="micro">Bubble set</div>
-                        <strong id="libraryCount">0 sounds</strong>
-                      </div>
-                      <button id="importInlineButton" class="mini-btn" type="button">Import</button>
-                    </div>
-                    <p>No preview mode. Imported sounds stay silent until they become bubbles in the scene.</p>
-                    <div id="assetList" class="asset-list"></div>
-                    <div id="emptyLibrary" class="empty">Import mp3 or wav files to build the bubble set.</div>
-                  </div>
-                </div>
-
-                <div class="carousel-slide">
-                  <div class="section">
-                    <div class="row">
-                      <div>
-                        <div class="micro">Scene generation</div>
-                        <strong id="selectionSummary">Select at least one sound</strong>
-                      </div>
-                      <div id="bubbleSliderMeta" class="step">4 bubbles</div>
-                    </div>
-                    <div class="slider-wrap">
-                      <label class="hint" for="bubbleCount">Number of bubbles</label>
-                      <input id="bubbleCount" type="range" min="1" max="10" step="1" value="4" />
-                    </div>
-                    <div class="action-grid">
-                      <button id="generateButton" class="action-btn" type="button">Generate</button>
-                      <button id="addForwardButton" class="action-btn ghost" type="button">Add ahead</button>
-                      <button id="undoButton" class="action-btn" type="button">Undo</button>
-                      <button id="clearButton" class="action-btn danger" type="button">Clear</button>
-                    </div>
-                    <div class="hint">Tap a bubble in AR to wake its audio. Every tap also toggles collé / décoller.</div>
-                  </div>
-                </div>
-
-                <div class="carousel-slide">
-                  <div class="section">
-                    <div class="row">
-                      <div>
-                        <div class="micro">Active bubbles</div>
-                        <strong id="activeCount">0 live</strong>
-                      </div>
-                    </div>
-                    <div id="bubbleList" class="bubble-list"></div>
-                    <div id="emptyScene" class="empty">Generate in AR to surround yourself with bubbles.</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="carousel-nav">
-              <button id="prevSlideButton" class="mini-btn" type="button">Prev</button>
-              <div id="carouselLabel" class="hint carousel-label">Bubble set</div>
-              <button id="nextSlideButton" class="mini-btn" type="button">Next</button>
-            </div>
-
-            <div id="carouselDots" class="carousel-dots"></div>
+        <div class="config-grid">
+          <button id="import-audio" class="ghost-btn wide">Import audio</button>
+          <button id="clear-bubbles" class="ghost-btn wide">Clear bubbles</button>
+          <div class="config-stat">
+            <span>Tempo</span>
+            <strong id="config-bpm">90 BPM</strong>
           </div>
-        </section>
-      </div>
+          <div class="config-stat">
+            <span>Bubbles</span>
+            <strong id="bubble-count">0 / 8</strong>
+          </div>
+        </div>
+      </aside>
 
-      <button id="dockButton" class="dock hidden" type="button">Controls</button>
-      <div id="toast" class="toast" role="status" aria-live="polite"></div>
-      <input id="fileInput" class="hidden" type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/wave,audio/x-wav" multiple />
+      <button id="source-toggle" class="panel-toggle glass hidden" aria-label="Toggle pad source panel">＋</button>
+      <section id="source-sheet" class="floating-panel source-sheet glass hidden">
+        <div class="panel-head tight">
+          <div>
+            <div class="eyebrow">Pad source</div>
+            <h2 id="source-title">Load pad</h2>
+          </div>
+          <button id="close-source" class="ghost-btn">Minimize</button>
+        </div>
+        <div class="source-actions">
+          <button id="source-import" class="ghost-btn wide">Import file</button>
+          <button id="source-record" class="ghost-btn wide">Record mic</button>
+        </div>
+        <div id="recording-note" class="panel-note hidden">Recording… tap stop when the loop feels right.</div>
+      </section>
+
+      <button id="bubble-toggle" class="panel-toggle glass hidden" aria-label="Toggle bubble panel">◌</button>
+      <section id="bubble-panel" class="floating-panel bubble-panel glass hidden">
+        <div class="panel-head tight">
+          <div>
+            <div class="eyebrow">Bubble</div>
+            <h2 id="bubble-title">Selected bubble</h2>
+          </div>
+          <button id="bubble-stick" class="ghost-btn">Coller</button>
+        </div>
+
+        <label class="slider-row">
+          <span>Range</span>
+          <input id="range-slider" type="range" min="0.8" max="6" step="0.05" />
+          <strong id="range-value">2.4 m</strong>
+        </label>
+
+        <label class="slider-row">
+          <span>Gain</span>
+          <input id="gain-slider" type="range" min="0" max="1.4" step="0.01" />
+          <strong id="gain-value">0.80</strong>
+        </label>
+
+        <div class="panel-note">Tap a bubble to edit it. Long press the selected bubble to pop it.</div>
+      </section>
+
+      <footer id="bottom-dock" class="bottom-dock glass is-collapsed">
+        <div class="dock-head">
+          <button id="dock-toggle" class="dock-toggle">Pads</button>
+          <div class="dock-note">Fast access to samples without blocking the AR view.</div>
+          <button id="undo-btn" class="ghost-btn">Undo</button>
+        </div>
+        <div id="dock-body" class="dock-body hidden">
+          <div class="pad-carousel-wrap">
+            <div id="pad-carousel" class="pad-carousel"></div>
+          </div>
+        </div>
+      </footer>
     </div>
+
+    <input id="file-input" type="file" accept="audio/*" hidden />
 
     <script type="module" src="/app.js"></script>
   </body>

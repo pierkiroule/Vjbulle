@@ -1,113 +1,955 @@
 import * as THREE from 'three';
 
-const STORAGE_KEY = 'echo-bubble-loop::bubble-set';
-const MAX_BUBBLES = 10;
-const MAX_LIBRARY_ITEMS = 24;
-const RING_RADIUS = 1.5;
-const STICK_DISTANCE = 0.5;
-const FORWARD_PLACE_DISTANCE = 0.4;
-const FLOAT_SPEED = 0.75;
-const FLOAT_HEIGHT = 0.08;
-const FADE_SECONDS = 0.3;
-const BOUNCE_SECONDS = 0.7;
-const CAMERA_HEIGHT = 1.55;
-const HUD_FADE_MS = 2600;
-const LOOK_SENSITIVITY = 0.0032;
-const PAN_LIMIT = Math.PI * 0.32;
+const APP_STORAGE_KEY = 'echo-bubble-loop::pads';
+const MAX_PADS = 8;
+const MAX_BUBBLES = 8;
+const DEFAULT_BPM = 90;
+const SPAWN_DISTANCE = 0.4;
+const STUCK_DISTANCE = 0.6;
+const LONG_PRESS_MS = 520;
+const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
 
-const scratch = {
-  forward: new THREE.Vector3(0, 0, -1),
-  up: new THREE.Vector3(0, 1, 0),
-  cameraWorld: new THREE.Vector3(),
-  bubbleWorld: new THREE.Vector3(),
-  cameraQuaternion: new THREE.Quaternion(),
-  matrix: new THREE.Matrix4(),
-  pointer: new THREE.Vector2(),
+const dom = {
+  xrRoot: document.querySelector('#xr-root'),
+  topBar: document.querySelector('#top-bar'),
+  enterAr: document.querySelector('#enter-ar'),
+  configToggle: document.querySelector('#config-toggle'),
+  configPanel: document.querySelector('#config-panel'),
+  supportBanner: document.querySelector('#support-banner'),
+  statusText: document.querySelector('#status-text'),
+  tempoText: document.querySelector('#tempo-text'),
+  configBpm: document.querySelector('#config-bpm'),
+  bubbleCount: document.querySelector('#bubble-count'),
+  importAudio: document.querySelector('#import-audio'),
+  clearPads: document.querySelector('#clear-pads'),
+  clearBubbles: document.querySelector('#clear-bubbles'),
+  bubbleToggle: document.querySelector('#bubble-toggle'),
+  bubblePanel: document.querySelector('#bubble-panel'),
+  bubbleTitle: document.querySelector('#bubble-title'),
+  bubbleStick: document.querySelector('#bubble-stick'),
+  rangeSlider: document.querySelector('#range-slider'),
+  rangeValue: document.querySelector('#range-value'),
+  gainSlider: document.querySelector('#gain-slider'),
+  gainValue: document.querySelector('#gain-value'),
+  sourceToggle: document.querySelector('#source-toggle'),
+  sourceSheet: document.querySelector('#source-sheet'),
+  sourceTitle: document.querySelector('#source-title'),
+  closeSource: document.querySelector('#close-source'),
+  sourceImport: document.querySelector('#source-import'),
+  sourceRecord: document.querySelector('#source-record'),
+  recordingNote: document.querySelector('#recording-note'),
+  padCarousel: document.querySelector('#pad-carousel'),
+  bottomDock: document.querySelector('#bottom-dock'),
+  dockToggle: document.querySelector('#dock-toggle'),
+  dockBody: document.querySelector('#dock-body'),
+  undoBtn: document.querySelector('#undo-btn'),
+  fileInput: document.querySelector('#file-input'),
+};
+
+const shared = {
   raycaster: new THREE.Raycaster(),
+  origin: new THREE.Vector3(),
+  direction: new THREE.Vector3(),
+  quaternion: new THREE.Quaternion(),
 };
 
 const state = {
-  bubbleSet: [],
-  selectedIds: new Set(),
-  bubbles: [],
-  bubbleCount: 4,
   renderer: null,
   scene: null,
   camera: null,
-  clock: new THREE.Clock(),
+  xrSession: null,
+  lastXRFrame: null,
   audioContext: null,
   masterGain: null,
-  xrSession: null,
-  hudFaded: false,
-  hudTimer: 0,
-  dragging: false,
-  dragPointerId: null,
-  dragMoved: false,
-  lastPointer: { x: 0, y: 0 },
-  yaw: 0,
-  pitch: 0,
-  bubbleSerial: 0,
-  toastTimer: 0,
-  carouselIndex: 0,
+  tempo: {
+    bpm: DEFAULT_BPM,
+    beatDuration: 60 / DEFAULT_BPM,
+  },
+  pads: Array.from({ length: MAX_PADS }, (_, index) => createEmptyPad(index)),
+  bubbles: [],
+  lastCreatedBubbleIds: [],
+  selectedBubbleId: null,
+  sourcePadIndex: null,
+  recorder: null,
+  recordingChunks: [],
+  recordingStream: null,
+  longPressTimer: 0,
+  arSupported: false,
+  sessionUsesDomOverlay: false,
+  bufferCache: new Map(),
+  ui: {
+    configOpen: false,
+    sourceOpen: false,
+    bubbleOpen: false,
+    dockOpen: false,
+  },
 };
 
-const dom = {
-  overlay: document.querySelector('#app'),
-  intro: document.querySelector('#intro'),
-  scene: document.querySelector('#scene'),
-  enterArButton: document.querySelector('#enterArButton'),
-  exitArButton: document.querySelector('#exitArButton'),
-  importButton: document.querySelector('#importButton'),
-  importInlineButton: document.querySelector('#importInlineButton'),
-  fileInput: document.querySelector('#fileInput'),
-  sessionChip: document.querySelector('#sessionChip'),
-  focusChip: document.querySelector('#focusChip'),
-  panelShell: document.querySelector('#panelShell'),
-  controlPanel: document.querySelector('#controlPanel'),
-  dockButton: document.querySelector('#dockButton'),
-  statusLine: document.querySelector('#statusLine'),
-  libraryCount: document.querySelector('#libraryCount'),
-  assetList: document.querySelector('#assetList'),
-  emptyLibrary: document.querySelector('#emptyLibrary'),
-  selectionSummary: document.querySelector('#selectionSummary'),
-  bubbleSlider: document.querySelector('#bubbleCount'),
-  bubbleSliderMeta: document.querySelector('#bubbleSliderMeta'),
-  generateButton: document.querySelector('#generateButton'),
-  addForwardButton: document.querySelector('#addForwardButton'),
-  undoButton: document.querySelector('#undoButton'),
-  clearButton: document.querySelector('#clearButton'),
-  activeCount: document.querySelector('#activeCount'),
-  bubbleList: document.querySelector('#bubbleList'),
-  emptyScene: document.querySelector('#emptyScene'),
-  toast: document.querySelector('#toast'),
-  carouselTrack: document.querySelector('#carouselTrack'),
-  prevSlideButton: document.querySelector('#prevSlideButton'),
-  nextSlideButton: document.querySelector('#nextSlideButton'),
-  carouselLabel: document.querySelector('#carouselLabel'),
-  carouselDots: document.querySelector('#carouselDots'),
-};
+bootstrap();
 
-const carouselSlides = [
-  'Bubble set',
-  'Generation',
-  'Active bubbles',
-];
-
-function showToast(message) {
-  window.clearTimeout(state.toastTimer);
-  dom.toast.textContent = message;
-  dom.toast.classList.add('is-visible');
-  state.toastTimer = window.setTimeout(() => {
-    dom.toast.classList.remove('is-visible');
-  }, 2200);
+async function bootstrap() {
+  setupThree();
+  loadPads();
+  renderPads();
+  syncTempoUi();
+  syncOverlayUi();
+  bindUi();
+  await checkArSupport();
+  state.renderer.setAnimationLoop(renderFrame);
 }
 
-function updateStatus(message) {
-  dom.statusLine.textContent = message;
+function setupThree() {
+  state.scene = new THREE.Scene();
+  state.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 40);
+  state.scene.add(state.camera);
+
+  state.scene.add(new THREE.HemisphereLight(0xe9f7ff, 0x122036, 1.8));
+
+  const glow = new THREE.PointLight(0x95e9ff, 1.8, 8, 2);
+  glow.position.set(0.4, 1.4, -0.8);
+  state.scene.add(glow);
+
+  state.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: false });
+  state.renderer.xr.enabled = true;
+  state.renderer.xr.setReferenceSpaceType('local');
+  state.renderer.outputColorSpace = THREE.SRGBColorSpace;
+  state.renderer.setClearColor(0x000000, 0);
+  state.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  state.renderer.setSize(window.innerWidth, window.innerHeight);
+  dom.xrRoot.appendChild(state.renderer.domElement);
+
+  window.addEventListener('resize', onResize);
+}
+
+function bindUi() {
+  dom.enterAr.addEventListener('click', startArSession);
+  dom.configToggle.addEventListener('click', () => togglePanel('config'));
+  dom.importAudio.addEventListener('click', () => {
+    state.sourcePadIndex = null;
+    dom.fileInput.click();
+  });
+  dom.clearPads.addEventListener('click', clearPads);
+  dom.clearBubbles.addEventListener('click', clearBubbles);
+  dom.undoBtn.addEventListener('click', undoLastBubble);
+  dom.dockToggle.addEventListener('click', () => togglePanel('dock'));
+  dom.sourceToggle.addEventListener('click', () => togglePanel('source'));
+  dom.bubbleToggle.addEventListener('click', () => togglePanel('bubble'));
+  dom.bubbleStick.addEventListener('click', toggleSelectedStickiness);
+  dom.rangeSlider.addEventListener('input', updateSelectedBubbleUi);
+  dom.gainSlider.addEventListener('input', updateSelectedBubbleUi);
+  dom.closeSource.addEventListener('click', minimizeSourceSheet);
+  dom.sourceImport.addEventListener('click', () => dom.fileInput.click());
+  dom.sourceRecord.addEventListener('click', toggleRecording);
+  dom.fileInput.addEventListener('change', onFilePicked);
+
+  const canRecord = Boolean(window.MediaRecorder && navigator.mediaDevices?.getUserMedia && AudioContextCtor);
+  dom.sourceRecord.disabled = !canRecord;
+}
+
+function togglePanel(panel) {
+  if (panel === 'config') {
+    const next = !state.ui.configOpen;
+    state.ui.configOpen = next;
+    if (next) {
+      state.ui.sourceOpen = false;
+      state.ui.bubbleOpen = false;
+    }
+  }
+
+  if (panel === 'source' && state.sourcePadIndex !== null) {
+    const next = !state.ui.sourceOpen;
+    state.ui.sourceOpen = next;
+    if (next) {
+      state.ui.configOpen = false;
+      state.ui.bubbleOpen = false;
+    }
+  }
+
+  if (panel === 'bubble' && state.selectedBubbleId) {
+    const next = !state.ui.bubbleOpen;
+    state.ui.bubbleOpen = next;
+    if (next) {
+      state.ui.configOpen = false;
+      state.ui.sourceOpen = false;
+    }
+  }
+
+  if (panel === 'dock') {
+    state.ui.dockOpen = !state.ui.dockOpen;
+  }
+
+  syncOverlayUi();
+}
+
+function syncOverlayUi() {
+  dom.configPanel.classList.toggle('hidden', !state.ui.configOpen);
+
+  const hasSourceContext = state.sourcePadIndex !== null;
+  dom.sourceToggle.classList.toggle('hidden', !hasSourceContext);
+  dom.sourceSheet.classList.toggle('hidden', !(hasSourceContext && state.ui.sourceOpen));
+
+  const hasBubbleContext = Boolean(state.selectedBubbleId);
+  dom.bubbleToggle.classList.toggle('hidden', !hasBubbleContext);
+  dom.bubblePanel.classList.toggle('hidden', !(hasBubbleContext && state.ui.bubbleOpen));
+
+  dom.bottomDock.classList.toggle('is-collapsed', !state.ui.dockOpen);
+  dom.dockBody.classList.toggle('hidden', !state.ui.dockOpen);
+  dom.dockToggle.textContent = state.ui.dockOpen ? 'Hide pads' : 'Pads';
+}
+
+function createEmptyPad(index) {
+  return {
+    id: `pad-${index + 1}`,
+    slot: index,
+    name: `Pad ${index + 1}`,
+    url: '',
+    bpm: DEFAULT_BPM,
+    loopStart: 0,
+    loopEnd: 0,
+    gain: 0.8,
+  };
+}
+
+function loadPads() {
+  try {
+    const raw = localStorage.getItem(APP_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+
+    state.pads = Array.from({ length: MAX_PADS }, (_, index) => ({
+      ...createEmptyPad(index),
+      ...(parsed[index] || {}),
+      slot: index,
+      id: parsed[index]?.id || `pad-${index + 1}`,
+    }));
+  } catch (error) {
+    console.warn('Unable to restore pads.', error);
+  }
+}
+
+function savePads() {
+  localStorage.setItem(APP_STORAGE_KEY, JSON.stringify(state.pads));
+}
+
+function syncTempoUi() {
+  const label = `${state.tempo.bpm} BPM`;
+  dom.tempoText.textContent = label;
+  dom.configBpm.textContent = label;
+  syncBubbleCount();
+}
+
+function syncBubbleCount() {
+  dom.bubbleCount.textContent = `${state.bubbles.length} / ${MAX_BUBBLES}`;
+}
+
+function setStatus(message) {
+  dom.statusText.textContent = message;
+}
+
+function renderPads() {
+  dom.padCarousel.innerHTML = '';
+
+  state.pads.forEach((pad, index) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `pad ${pad.url ? 'is-filled' : ''} ${state.sourcePadIndex === index ? 'is-active' : ''}`;
+    button.innerHTML = `
+      <span class="pad-index">Pad ${index + 1}</span>
+      <span class="pad-name">${escapeHtml(pad.url ? pad.name : 'Empty')}</span>
+      <span class="pad-meta">${pad.url ? `${pad.bpm} BPM · ${formatLoopLength(pad.loopEnd)} loop` : 'Tap to load sound'}</span>
+    `;
+
+    let pressTimer = 0;
+    button.addEventListener('pointerdown', () => {
+      if (!pad.url) return;
+      pressTimer = window.setTimeout(() => openSourceSheet(index, true), LONG_PRESS_MS);
+    });
+    button.addEventListener('pointerup', () => window.clearTimeout(pressTimer));
+    button.addEventListener('pointerleave', () => window.clearTimeout(pressTimer));
+    button.addEventListener('click', () => handlePadTap(index));
+    dom.padCarousel.appendChild(button);
+  });
+}
+
+function handlePadTap(index) {
+  const pad = state.pads[index];
+  if (!pad.url) {
+    openSourceSheet(index, false);
+    return;
+  }
+  void createBubbleFromPad(pad);
+}
+
+function openSourceSheet(index, replacing) {
+  state.sourcePadIndex = index;
+  state.ui.sourceOpen = true;
+  state.ui.configOpen = false;
+  state.ui.bubbleOpen = false;
+  dom.sourceTitle.textContent = replacing ? `Replace ${state.pads[index].name}` : `Load Pad ${index + 1}`;
+  syncOverlayUi();
+  renderPads();
+}
+
+function minimizeSourceSheet() {
+  state.ui.sourceOpen = false;
+  syncOverlayUi();
+}
+
+function closeSourceSheet() {
+  state.sourcePadIndex = null;
+  state.ui.sourceOpen = false;
+  dom.recordingNote.classList.add('hidden');
+  dom.sourceRecord.textContent = 'Record mic';
+  syncOverlayUi();
+  renderPads();
+}
+
+async function onFilePicked(event) {
+  const [file] = event.target.files || [];
+  dom.fileInput.value = '';
+  if (!file) return;
+
+  const slot = state.sourcePadIndex ?? firstEmptyPadIndex();
+  if (slot === -1) {
+    closeSourceSheet();
+    setStatus('All pads are full. Long press a filled pad to replace one.');
+    return;
+  }
+
+  try {
+    const pad = await createPadFromFile(file, slot);
+    state.pads[slot] = pad;
+    savePads();
+    closeSourceSheet();
+    renderPads();
+    setStatus(`${pad.name} is ready. Tap the pad to place a bubble.`);
+    state.ui.dockOpen = true;
+    syncOverlayUi();
+  } catch (error) {
+    console.error(error);
+    setStatus('Audio import failed on this device.');
+  }
+}
+
+function firstEmptyPadIndex() {
+  return state.pads.findIndex((pad) => !pad.url);
+}
+
+async function createPadFromFile(file, slot) {
+  if (!AudioContextCtor) {
+    throw new Error('Web Audio unavailable');
+  }
+
+  const dataUrl = await fileToDataUrl(file);
+  const arrayBuffer = await file.arrayBuffer();
+  const context = new AudioContextCtor();
+  const buffer = await context.decodeAudioData(arrayBuffer.slice(0));
+  await context.close();
+
+  const analysis = analyzeLoop(buffer.duration);
+  return {
+    id: crypto.randomUUID(),
+    slot,
+    name: file.name.replace(/\.[^.]+$/, ''),
+    url: dataUrl,
+    bpm: analysis.bpm,
+    loopStart: 0,
+    loopEnd: analysis.loopEnd,
+    gain: 0.8,
+  };
+}
+
+function analyzeLoop(duration) {
+  let best = { score: Number.POSITIVE_INFINITY, bpm: DEFAULT_BPM, bars: 1, ideal: duration };
+  for (let bpm = 70; bpm <= 140; bpm += 1) {
+    for (const bars of [1, 2, 4]) {
+      const ideal = (60 / bpm) * 4 * bars;
+      const score = Math.abs(ideal - duration);
+      if (score < best.score) {
+        best = { score, bpm, bars, ideal };
+      }
+    }
+  }
+
+  return {
+    bpm: best.bpm,
+    bars: best.bars,
+    loopEnd: Math.min(duration, best.ideal),
+  };
+}
+
+async function ensureAudio() {
+  if (!AudioContextCtor) {
+    throw new Error('Web Audio unavailable');
+  }
+
+  if (!state.audioContext) {
+    state.audioContext = new AudioContextCtor();
+    state.masterGain = state.audioContext.createGain();
+    state.masterGain.gain.value = 0.95;
+    state.masterGain.connect(state.audioContext.destination);
+  }
+
+  if (state.audioContext.state !== 'running') {
+    await state.audioContext.resume();
+  }
+}
+
+async function createBubbleFromPad(pad) {
+  if (!state.xrSession) {
+    setStatus('Enter AR to place bubbles in space.');
+    return;
+  }
+
+  if (state.bubbles.length >= MAX_BUBBLES) {
+    setStatus('Maximum of 8 active bubbles reached.');
+    return;
+  }
+
+  try {
+    await ensureAudio();
+    const buffer = await loadAudioBuffer(pad.url);
+    const pose = getPlacementPose();
+    const range = mapLoopToRange(pad.loopEnd);
+    const bubbleVisual = buildBubbleVisual(range);
+    bubbleVisual.group.position.copy(pose.position).addScaledVector(pose.forward, SPAWN_DISTANCE);
+    bubbleVisual.group.scale.setScalar(0.01);
+    state.scene.add(bubbleVisual.group);
+
+    const source = state.audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    source.loopStart = pad.loopStart;
+    source.loopEnd = Math.min(buffer.duration, pad.loopEnd || buffer.duration);
+
+    const gainNode = state.audioContext.createGain();
+    gainNode.gain.value = 0;
+
+    const panner = new PannerNode(state.audioContext, {
+      panningModel: 'HRTF',
+      distanceModel: 'linear',
+      refDistance: 0.4,
+      maxDistance: Math.max(range * 2, 6),
+      rolloffFactor: 1,
+      coneInnerAngle: 360,
+      coneOuterAngle: 360,
+    });
+
+    source.connect(gainNode);
+    gainNode.connect(panner);
+    panner.connect(state.masterGain);
+
+    const nextBeat = Math.ceil(state.audioContext.currentTime / state.tempo.beatDuration) * state.tempo.beatDuration;
+    source.start(nextBeat);
+
+    const bubble = {
+      id: bubbleVisual.id,
+      padId: pad.id,
+      name: pad.name,
+      mesh: bubbleVisual.core,
+      aura: bubbleVisual.aura,
+      group: bubbleVisual.group,
+      audio: { source, gainNode, panner },
+      range,
+      gainMax: pad.gain,
+      currentGain: 0,
+      targetGain: 0,
+      stuck: false,
+      stuckDistance: STUCK_DISTANCE,
+      baseY: bubbleVisual.group.position.y,
+      driftSeed: Math.random() * Math.PI * 2,
+      spawnAt: performance.now(),
+      fadeOut: false,
+    };
+
+    source.onended = () => bubble.group.parent?.remove(bubble.group);
+
+    state.bubbles.push(bubble);
+    state.lastCreatedBubbleIds.push(bubble.id);
+    selectBubble(bubble.id);
+    syncBubbleCount();
+    setStatus(`${pad.name} joins on the next beat.`);
+  } catch (error) {
+    console.error(error);
+    setStatus('Bubble creation failed in AR.');
+  }
+}
+
+function buildBubbleVisual(range) {
+  const group = new THREE.Group();
+
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(0.075, 32, 32),
+    new THREE.MeshPhysicalMaterial({
+      color: 0x8fe8ff,
+      transparent: true,
+      opacity: 0.72,
+      roughness: 0.08,
+      metalness: 0.02,
+      transmission: 0.58,
+      thickness: 0.35,
+      emissive: 0x6ed9ff,
+      emissiveIntensity: 0.6,
+    }),
+  );
+
+  const aura = new THREE.Mesh(
+    new THREE.SphereGeometry(range, 24, 24),
+    new THREE.MeshBasicMaterial({
+      color: 0x8fe8ff,
+      transparent: true,
+      opacity: 0.05,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    }),
+  );
+
+  group.add(aura, core);
+
+  return {
+    id: crypto.randomUUID(),
+    group,
+    core,
+    aura,
+  };
+}
+
+function mapLoopToRange(loopEnd) {
+  return THREE.MathUtils.clamp(1.4 + loopEnd * 0.45, 1.4, 4.8);
+}
+
+function getPlacementPose() {
+  const xrCamera = state.renderer.xr.isPresenting ? state.renderer.xr.getCamera() : state.camera;
+  const position = new THREE.Vector3();
+  const quaternion = new THREE.Quaternion();
+  const forward = new THREE.Vector3(0, 0, -1);
+
+  xrCamera.getWorldPosition(position);
+  xrCamera.getWorldQuaternion(quaternion);
+  forward.applyQuaternion(quaternion).normalize();
+
+  return { position, quaternion, forward };
+}
+
+async function loadAudioBuffer(url) {
+  if (state.bufferCache.has(url)) {
+    return state.bufferCache.get(url);
+  }
+
+  await ensureAudio();
+  const response = await fetch(url);
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = await state.audioContext.decodeAudioData(arrayBuffer.slice(0));
+  state.bufferCache.set(url, buffer);
+  return buffer;
+}
+
+async function startArSession() {
+  if (!state.arSupported) {
+    dom.supportBanner.classList.remove('hidden');
+    return;
+  }
+
+  if (state.xrSession) {
+    await state.xrSession.end();
+    return;
+  }
+
+  try {
+    let session;
+    try {
+      session = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['local'],
+        optionalFeatures: ['dom-overlay'],
+        domOverlay: { root: document.body },
+      });
+    } catch (overlayError) {
+      console.warn('Retrying immersive-ar without DOM overlay.', overlayError);
+      session = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['local'],
+      });
+    }
+
+    await attachSession(session);
+    setStatus('Tap a filled pad to place a loop bubble in front of you.');
+  } catch (error) {
+    console.error(error);
+    setStatus('Unable to start AR on this device.');
+  }
+}
+
+async function attachSession(session) {
+  state.xrSession = session;
+  state.sessionUsesDomOverlay = Boolean(session.domOverlayState);
+
+  session.addEventListener('end', onSessionEnd);
+  session.addEventListener('selectstart', onSessionSelectStart);
+  session.addEventListener('selectend', onSessionSelectEnd);
+
+  await state.renderer.xr.setSession(session);
+  await ensureAudio();
+
+  dom.enterAr.textContent = 'Exit AR';
+  document.body.classList.add('is-ar-active');
+  state.ui.dockOpen = false;
+  syncOverlayUi();
+  if (!state.sessionUsesDomOverlay) {
+    setStatus('AR started. Device DOM overlay is unavailable, so UI may be limited inside the session.');
+  }
+}
+
+function onSessionEnd(event) {
+  const session = event?.target || state.xrSession;
+  session?.removeEventListener('end', onSessionEnd);
+  session?.removeEventListener('selectstart', onSessionSelectStart);
+  session?.removeEventListener('selectend', onSessionSelectEnd);
+
+  state.xrSession = null;
+  state.lastXRFrame = null;
+  state.sessionUsesDomOverlay = false;
+  document.body.classList.remove('is-ar-active');
+  dom.enterAr.textContent = 'Enter AR';
+  window.clearTimeout(state.longPressTimer);
+  setStatus('AR session ended. Re-enter to sculpt more sound.');
+}
+
+async function checkArSupport() {
+  if (!navigator.xr) {
+    dom.supportBanner.classList.remove('hidden');
+    dom.enterAr.disabled = true;
+    return;
+  }
+
+  try {
+    state.arSupported = await navigator.xr.isSessionSupported('immersive-ar');
+  } catch (error) {
+    console.error(error);
+    state.arSupported = false;
+  }
+
+  dom.supportBanner.classList.toggle('hidden', state.arSupported);
+  dom.enterAr.disabled = !state.arSupported;
+}
+
+function selectBubble(bubbleId) {
+  state.selectedBubbleId = bubbleId;
+  const bubble = state.bubbles.find((item) => item.id === bubbleId);
+  if (!bubble) {
+    state.ui.bubbleOpen = false;
+    syncOverlayUi();
+    state.bubbles.forEach((item) => {
+      item.mesh.material.emissiveIntensity = 0.6;
+      item.aura.material.opacity = 0.05;
+    });
+    return;
+  }
+
+  state.ui.bubbleOpen = true;
+  state.ui.configOpen = false;
+  state.ui.sourceOpen = false;
+  syncOverlayUi();
+  dom.bubbleTitle.textContent = bubble.name;
+  dom.bubbleStick.textContent = bubble.stuck ? 'Décoller' : 'Coller';
+  dom.rangeSlider.value = String(bubble.range);
+  dom.gainSlider.value = String(bubble.gainMax);
+  dom.rangeValue.textContent = `${bubble.range.toFixed(2)} m`;
+  dom.gainValue.textContent = bubble.gainMax.toFixed(2);
+
+  state.bubbles.forEach((item) => {
+    const selected = item.id === bubbleId;
+    item.mesh.material.emissiveIntensity = selected ? 1.0 : 0.6;
+    item.aura.material.opacity = selected ? 0.1 : 0.05;
+  });
+}
+
+function getSelectedBubble() {
+  return state.bubbles.find((item) => item.id === state.selectedBubbleId) || null;
+}
+
+function updateSelectedBubbleUi() {
+  const bubble = getSelectedBubble();
+  if (!bubble) return;
+
+  bubble.range = Number(dom.rangeSlider.value);
+  bubble.gainMax = Number(dom.gainSlider.value);
+  bubble.aura.scale.setScalar(bubble.range / bubble.aura.geometry.parameters.radius);
+
+  dom.rangeValue.textContent = `${bubble.range.toFixed(2)} m`;
+  dom.gainValue.textContent = bubble.gainMax.toFixed(2);
+}
+
+function toggleSelectedStickiness() {
+  const bubble = getSelectedBubble();
+  if (!bubble) return;
+
+  bubble.stuck = !bubble.stuck;
+  dom.bubbleStick.textContent = bubble.stuck ? 'Décoller' : 'Coller';
+  setStatus(bubble.stuck ? 'Bubble collée to your forward space.' : 'Bubble décollée into world space.');
+}
+
+async function toggleRecording() {
+  if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) {
+    setStatus('Microphone recording is unavailable on this device.');
+    return;
+  }
+
+  if (state.recorder?.state === 'recording') {
+    state.recorder.stop();
+    return;
+  }
+
+  try {
+    state.recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    state.recordingChunks = [];
+    state.recorder = new MediaRecorder(state.recordingStream);
+    state.recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        state.recordingChunks.push(event.data);
+      }
+    };
+    state.recorder.onstop = finishRecording;
+    state.recorder.start();
+    dom.recordingNote.classList.remove('hidden');
+    dom.sourceRecord.textContent = 'Stop recording';
+    setStatus('Recording microphone loop…');
+  } catch (error) {
+    console.error(error);
+    setStatus('Microphone recording is unavailable on this device.');
+  }
+}
+
+async function finishRecording() {
+  const slot = state.sourcePadIndex ?? firstEmptyPadIndex();
+  if (slot === -1) {
+    cleanupRecorder();
+    closeSourceSheet();
+    setStatus('All pads are full. Long press a filled pad to replace one.');
+    return;
+  }
+
+  try {
+    const mimeType = state.recorder?.mimeType || 'audio/webm';
+    const blob = new Blob(state.recordingChunks, { type: mimeType });
+    const file = new File([blob], `Mic Loop ${slot + 1}.webm`, { type: blob.type });
+    const pad = await createPadFromFile(file, slot);
+    pad.name = `Mic Loop ${slot + 1}`;
+    state.pads[slot] = pad;
+    savePads();
+    closeSourceSheet();
+    renderPads();
+    setStatus(`${pad.name} captured and ready.`);
+    state.ui.dockOpen = true;
+    syncOverlayUi();
+  } catch (error) {
+    console.error(error);
+    setStatus('Recorded audio could not be decoded on this device.');
+  } finally {
+    cleanupRecorder();
+  }
+}
+
+function cleanupRecorder() {
+  dom.sourceRecord.textContent = 'Record mic';
+  dom.recordingNote.classList.add('hidden');
+  state.recordingStream?.getTracks().forEach((track) => track.stop());
+  state.recordingStream = null;
+  state.recorder = null;
+  state.recordingChunks = [];
+}
+
+function clearPads() {
+  state.pads = Array.from({ length: MAX_PADS }, (_, index) => createEmptyPad(index));
+  state.bufferCache.clear();
+  savePads();
+  closeSourceSheet();
+  renderPads();
+  setStatus('All pads cleared.');
+  syncOverlayUi();
+}
+
+function clearBubbles() {
+  [...state.bubbles].forEach((bubble) => fadeOutAndRemoveBubble(bubble));
+  state.lastCreatedBubbleIds = [];
+  selectBubble(null);
+  syncBubbleCount();
+  setStatus('All active bubbles are fading out.');
+  syncOverlayUi();
+}
+
+function undoLastBubble() {
+  const bubbleId = state.lastCreatedBubbleIds.pop();
+  if (!bubbleId) {
+    setStatus('Nothing to undo.');
+    return;
+  }
+
+  const bubble = state.bubbles.find((item) => item.id === bubbleId);
+  if (bubble) {
+    fadeOutAndRemoveBubble(bubble);
+    setStatus('Last bubble undone.');
+  }
+}
+
+function fadeOutAndRemoveBubble(bubble) {
+  bubble.fadeOut = true;
+
+  if (state.audioContext) {
+    const now = state.audioContext.currentTime;
+    bubble.audio.gainNode.gain.cancelScheduledValues(now);
+    bubble.audio.gainNode.gain.setValueAtTime(bubble.currentGain, now);
+    bubble.audio.gainNode.gain.linearRampToValueAtTime(0, now + 0.25);
+  }
+
+  window.setTimeout(() => {
+    try {
+      bubble.audio.source.stop();
+    } catch (error) {
+      // ignore redundant stops
+    }
+
+    bubble.audio.source.disconnect();
+    bubble.audio.gainNode.disconnect();
+    bubble.audio.panner.disconnect();
+    bubble.group.parent?.remove(bubble.group);
+
+    state.bubbles = state.bubbles.filter((item) => item.id !== bubble.id);
+    state.lastCreatedBubbleIds = state.lastCreatedBubbleIds.filter((id) => id !== bubble.id);
+    if (state.selectedBubbleId === bubble.id) {
+      selectBubble(null);
+    }
+    syncBubbleCount();
+    syncOverlayUi();
+  }, 260);
+}
+
+function onSessionSelectStart(event) {
+  const hit = pickBubble(event.frame, event.inputSource);
+  if (!hit) return;
+
+  selectBubble(hit.id);
+  window.clearTimeout(state.longPressTimer);
+  state.longPressTimer = window.setTimeout(() => {
+    const selected = getSelectedBubble();
+    if (selected?.id === hit.id) {
+      fadeOutAndRemoveBubble(selected);
+      setStatus(`${selected.name} popped.`);
+    }
+  }, LONG_PRESS_MS);
+}
+
+function onSessionSelectEnd(event) {
+  window.clearTimeout(state.longPressTimer);
+  const hit = pickBubble(event.frame, event.inputSource);
+  if (hit) {
+    selectBubble(hit.id);
+  }
+}
+
+function pickBubble(frame = state.lastXRFrame, inputSource = null) {
+  if (!state.bubbles.length) return null;
+
+  const ray = getTargetRay(frame, inputSource);
+  if (!ray) return null;
+
+  shared.raycaster.set(ray.origin, ray.direction);
+  const hits = shared.raycaster.intersectObjects(state.bubbles.map((bubble) => bubble.mesh), false);
+  if (!hits.length) return null;
+
+  return state.bubbles.find((bubble) => bubble.mesh === hits[0].object) || null;
+}
+
+function getTargetRay(frame = state.lastXRFrame, inputSource = null) {
+  const referenceSpace = state.renderer.xr.getReferenceSpace?.();
+  if (frame && inputSource?.targetRaySpace && referenceSpace) {
+    const pose = frame.getPose(inputSource.targetRaySpace, referenceSpace);
+    if (pose) {
+      shared.origin.set(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
+      shared.quaternion.set(
+        pose.transform.orientation.x,
+        pose.transform.orientation.y,
+        pose.transform.orientation.z,
+        pose.transform.orientation.w,
+      );
+      shared.direction.set(0, 0, -1).applyQuaternion(shared.quaternion).normalize();
+      return { origin: shared.origin.clone(), direction: shared.direction.clone() };
+    }
+  }
+
+  const pose = getPlacementPose();
+  return { origin: pose.position, direction: pose.forward };
+}
+
+function renderFrame(_time, frame) {
+  state.lastXRFrame = frame || null;
+  updateListener();
+  updateBubbles(performance.now());
+  state.renderer.render(state.scene, state.camera);
+}
+
+function updateListener() {
+  if (!state.audioContext) return;
+
+  const listener = state.audioContext.listener;
+  const pose = getPlacementPose();
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(pose.quaternion).normalize();
+  const t = state.audioContext.currentTime;
+
+  if (listener.positionX) {
+    listener.positionX.linearRampToValueAtTime(pose.position.x, t + 0.05);
+    listener.positionY.linearRampToValueAtTime(pose.position.y, t + 0.05);
+    listener.positionZ.linearRampToValueAtTime(pose.position.z, t + 0.05);
+    listener.forwardX.linearRampToValueAtTime(pose.forward.x, t + 0.05);
+    listener.forwardY.linearRampToValueAtTime(pose.forward.y, t + 0.05);
+    listener.forwardZ.linearRampToValueAtTime(pose.forward.z, t + 0.05);
+    listener.upX.linearRampToValueAtTime(up.x, t + 0.05);
+    listener.upY.linearRampToValueAtTime(up.y, t + 0.05);
+    listener.upZ.linearRampToValueAtTime(up.z, t + 0.05);
+  }
+}
+
+function updateBubbles(now) {
+  const pose = getPlacementPose();
+
+  state.bubbles.forEach((bubble) => {
+    if (bubble.stuck) {
+      bubble.group.position.copy(pose.position).addScaledVector(pose.forward, bubble.stuckDistance);
+      bubble.baseY = bubble.group.position.y;
+    }
+
+    const floatOffset = Math.sin(now * 0.0012 + bubble.driftSeed) * 0.018;
+    bubble.group.position.y = bubble.baseY + floatOffset;
+    bubble.group.rotation.y += 0.0025;
+
+    const spawnProgress = Math.min(1, (now - bubble.spawnAt) / 520);
+    const eased = 1 - Math.pow(1 - spawnProgress, 3);
+    const bounce = 1 + Math.sin(Math.min(Math.PI, spawnProgress * Math.PI)) * 0.08 * (1 - spawnProgress);
+    bubble.group.scale.setScalar(Math.max(0.01, eased * bounce));
+
+    const distance = bubble.group.position.distanceTo(pose.position);
+    bubble.targetGain = distance < bubble.range ? Math.pow(1 - distance / bubble.range, 2) * bubble.gainMax : 0;
+    bubble.currentGain += (bubble.targetGain - bubble.currentGain) * 0.08;
+    if (bubble.fadeOut) {
+      bubble.currentGain *= 0.78;
+    }
+
+    if (!state.audioContext) return;
+    const t = state.audioContext.currentTime + 0.05;
+    bubble.audio.gainNode.gain.linearRampToValueAtTime(bubble.currentGain, t);
+    bubble.audio.panner.positionX.linearRampToValueAtTime(bubble.group.position.x, t);
+    bubble.audio.panner.positionY.linearRampToValueAtTime(bubble.group.position.y, t);
+    bubble.audio.panner.positionZ.linearRampToValueAtTime(bubble.group.position.z, t);
+  });
+}
+
+function onResize() {
+  state.camera.aspect = window.innerWidth / window.innerHeight;
+  state.camera.updateProjectionMatrix();
+  state.renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
 function escapeHtml(value) {
-  return value
+  return String(value)
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
@@ -115,997 +957,15 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
-function clampBubbleCount(value) {
-  return Math.min(MAX_BUBBLES, Math.max(1, Number(value) || 1));
+function formatLoopLength(seconds) {
+  return `${seconds.toFixed(seconds >= 10 ? 0 : 1)}s`;
 }
 
-function saveBubbleSet() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.bubbleSet));
-}
-
-function loadBubbleSet() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return;
-    }
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return;
-    }
-    state.bubbleSet = parsed
-      .filter((item) => item && typeof item.id === 'string' && typeof item.name === 'string' && typeof item.url === 'string')
-      .slice(0, MAX_LIBRARY_ITEMS);
-    state.selectedIds = new Set(state.bubbleSet.slice(0, Math.min(4, state.bubbleSet.length)).map((item) => item.id));
-  } catch (error) {
-    console.warn('Failed to restore bubble set.', error);
-    localStorage.removeItem(STORAGE_KEY);
-  }
-}
-
-function toDataUrl(file) {
+function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error || new Error('Unable to read file.'));
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file'));
     reader.readAsDataURL(file);
   });
 }
-
-async function importFiles(files) {
-  if (!files.length) {
-    return;
-  }
-
-  const imported = [];
-  for (const file of files) {
-    if (!file.type.startsWith('audio/') && !/\.(mp3|wav)$/i.test(file.name)) {
-      continue;
-    }
-
-    const url = await toDataUrl(file);
-    imported.push({
-      id: crypto.randomUUID(),
-      name: file.name,
-      url,
-    });
-  }
-
-  if (!imported.length) {
-    showToast('Only mp3 and wav files can be imported.');
-    return;
-  }
-
-  state.bubbleSet = [...state.bubbleSet, ...imported].slice(-MAX_LIBRARY_ITEMS);
-  const nextSelected = new Set(state.selectedIds);
-  imported.forEach((asset) => {
-    if (nextSelected.size < MAX_BUBBLES) {
-      nextSelected.add(asset.id);
-    }
-  });
-  state.selectedIds = nextSelected;
-
-  try {
-    saveBubbleSet();
-  } catch (error) {
-    console.error(error);
-    state.bubbleSet = state.bubbleSet.filter((asset) => !imported.some((item) => item.id === asset.id));
-    imported.forEach((item) => nextSelected.delete(item.id));
-    state.selectedIds = nextSelected;
-    showToast('Storage is full. Import fewer or shorter files.');
-    renderBubbleSet();
-    return;
-  }
-
-  renderBubbleSet();
-  updateStatus('Bubble set ready. Enter AR to generate your ring.');
-  showToast(`${imported.length} sound${imported.length > 1 ? 's' : ''} imported.`);
-}
-
-function renderBubbleSet() {
-  dom.assetList.innerHTML = '';
-  dom.libraryCount.textContent = `${state.bubbleSet.length} sound${state.bubbleSet.length === 1 ? '' : 's'}`;
-  dom.emptyLibrary.classList.toggle('hidden', state.bubbleSet.length > 0);
-
-  for (const asset of state.bubbleSet) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = `asset-toggle${state.selectedIds.has(asset.id) ? ' is-active' : ''}`;
-    button.dataset.assetId = asset.id;
-    button.innerHTML = `
-      <div class="asset-meta">
-        <div class="asset-name">${escapeHtml(asset.name)}</div>
-        <span>${state.selectedIds.has(asset.id) ? 'Selected' : 'Select'}</span>
-      </div>
-      <div class="asset-sub">Ready for circular generation and forward placement.</div>
-    `;
-    dom.assetList.append(button);
-  }
-
-  updateSelectionSummary();
-}
-
-function updateSelectionSummary() {
-  const selectedCount = state.selectedIds.size;
-  dom.selectionSummary.textContent = selectedCount
-    ? `${selectedCount} sound${selectedCount > 1 ? 's' : ''} selected`
-    : 'Select at least one sound';
-  dom.bubbleSliderMeta.textContent = `${state.bubbleCount} bubble${state.bubbleCount > 1 ? 's' : ''}`;
-}
-
-function renderActiveBubbles() {
-  dom.bubbleList.innerHTML = '';
-  dom.activeCount.textContent = `${state.bubbles.length} live`;
-  dom.emptyScene.classList.toggle('hidden', state.bubbles.length > 0);
-
-  for (const bubble of state.bubbles) {
-    const card = document.createElement('article');
-    card.className = `bubble-card${bubble.stuck ? ' is-stuck' : ''}${bubble.isUnlocked ? '' : ' is-silent'}`;
-    card.innerHTML = `
-      <div class="bubble-meta">
-        <div class="bubble-title">${escapeHtml(bubble.name)}</div>
-        <button class="mini-btn" type="button" data-focus-bubble="${bubble.id}">${bubble.isUnlocked ? 'Live' : 'Touch to wake'}</button>
-      </div>
-      <div class="bubble-sub">
-        <span class="tag ${bubble.isUnlocked ? 'live' : 'silent'}">${bubble.isUnlocked ? 'Audio live' : 'Silent'}</span>
-        <span class="tag ${bubble.stuck ? 'stuck' : 'free'}">${bubble.stuck ? 'Collé' : 'Décollé'}</span>
-        <span>Range ${bubble.range.toFixed(1)} m</span>
-      </div>
-    `;
-    dom.bubbleList.append(card);
-  }
-}
-
-
-function syncCarousel() {
-  const index = state.carouselIndex;
-  dom.carouselTrack.style.transform = `translateX(calc(${-index * 100}% - ${index * 12}px))`;
-  dom.carouselLabel.textContent = carouselSlides[index];
-  dom.prevSlideButton.disabled = index === 0;
-  dom.nextSlideButton.disabled = index === carouselSlides.length - 1;
-
-  [...dom.carouselDots.children].forEach((dot, dotIndex) => {
-    dot.classList.toggle('is-active', dotIndex === index);
-  });
-}
-
-function setCarouselIndex(nextIndex) {
-  state.carouselIndex = Math.min(carouselSlides.length - 1, Math.max(0, nextIndex));
-  syncCarousel();
-}
-
-function initCarousel() {
-  dom.carouselDots.innerHTML = '';
-  carouselSlides.forEach((label, index) => {
-    const dot = document.createElement('button');
-    dot.type = 'button';
-    dot.className = `carousel-dot${index === 0 ? ' is-active' : ''}`;
-    dot.setAttribute('aria-label', label);
-    dot.addEventListener('click', () => {
-      setCarouselIndex(index);
-      wakeHud();
-    });
-    dom.carouselDots.append(dot);
-  });
-  syncCarousel();
-}
-
-function markSessionChip(active, text) {
-  dom.sessionChip.classList.toggle('active', active);
-  dom.sessionChip.classList.toggle('idle', !active);
-  dom.sessionChip.textContent = text;
-}
-
-function markFocusChip(active, text) {
-  dom.focusChip.classList.toggle('active', active);
-  dom.focusChip.classList.toggle('idle', !active);
-  dom.focusChip.textContent = text;
-}
-
-function wakeHud() {
-  state.hudFaded = false;
-  dom.panelShell.classList.remove('is-faded');
-  dom.dockButton.classList.remove('hidden');
-  window.clearTimeout(state.hudTimer);
-  if (state.xrSession) {
-    state.hudTimer = window.setTimeout(() => {
-      state.hudFaded = true;
-      dom.panelShell.classList.add('is-faded');
-    }, HUD_FADE_MS);
-  }
-}
-
-function closeHudSoon() {
-  if (!state.xrSession) {
-    return;
-  }
-  window.clearTimeout(state.hudTimer);
-  state.hudTimer = window.setTimeout(() => {
-    state.hudFaded = true;
-    dom.panelShell.classList.add('is-faded');
-  }, HUD_FADE_MS);
-}
-
-async function ensureAudioContext() {
-  if (!state.audioContext) {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextClass) {
-      throw new Error('Web Audio API is unavailable.');
-    }
-    state.audioContext = new AudioContextClass({ latencyHint: 'interactive' });
-    state.masterGain = state.audioContext.createGain();
-    state.masterGain.gain.value = 0.92;
-    state.masterGain.connect(state.audioContext.destination);
-  }
-
-  if (state.audioContext.state === 'suspended') {
-    await state.audioContext.resume();
-  }
-}
-
-function buildBubbleProfile(index, total) {
-  const normalized = total <= 1 ? 0.5 : index / (total - 1);
-  return {
-    visualRadius: THREE.MathUtils.lerp(0.22, 0.38, normalized),
-    range: THREE.MathUtils.lerp(2.2, 4.2, normalized),
-    gainMax: THREE.MathUtils.lerp(0.28, 0.86, normalized),
-  };
-}
-
-function createBubbleVisual(radius, isUnlocked) {
-  const group = new THREE.Group();
-
-  const halo = new THREE.Mesh(
-    new THREE.SphereGeometry(radius * 1.46, 28, 28),
-    new THREE.MeshBasicMaterial({
-      color: 0x74dbff,
-      transparent: true,
-      opacity: 0.16,
-      depthWrite: false,
-    }),
-  );
-
-  const shell = new THREE.Mesh(
-    new THREE.SphereGeometry(radius, 34, 34),
-    new THREE.MeshPhysicalMaterial({
-      color: 0x8be4ff,
-      transparent: true,
-      opacity: 0.52,
-      roughness: 0.1,
-      metalness: 0.02,
-      transmission: 0.04,
-      ior: 1.12,
-      thickness: 0.4,
-      depthWrite: false,
-      emissive: isUnlocked ? 0x4fd5ff : 0x3b5265,
-      emissiveIntensity: isUnlocked ? 1.4 : 0.7,
-    }),
-  );
-
-  const core = new THREE.Mesh(
-    new THREE.SphereGeometry(radius * 0.52, 24, 24),
-    new THREE.MeshBasicMaterial({
-      color: isUnlocked ? 0xf8fdff : 0xa7bfd4,
-      transparent: true,
-      opacity: 0.96,
-      depthWrite: false,
-    }),
-  );
-
-  const aura = new THREE.Mesh(
-    new THREE.SphereGeometry(radius * 1.08, 24, 24),
-    new THREE.MeshBasicMaterial({
-      color: isUnlocked ? 0xa8eeff : 0x6a8ca7,
-      wireframe: true,
-      transparent: true,
-      opacity: 0.26,
-      depthWrite: false,
-    }),
-  );
-
-  group.add(halo, shell, aura, core);
-  group.userData.shell = shell;
-  group.userData.core = core;
-  group.userData.aura = aura;
-  return group;
-}
-
-function setBubbleVisualState(bubble) {
-  const shell = bubble.root.userData.shell;
-  const core = bubble.root.userData.core;
-  const aura = bubble.root.userData.aura;
-  if (!shell || !core || !aura) {
-    return;
-  }
-  shell.material.emissive.setHex(bubble.isUnlocked ? 0x4fd5ff : 0x3b5265);
-  shell.material.emissiveIntensity = bubble.isUnlocked ? 1.4 : 0.7;
-  core.material.color.setHex(bubble.isUnlocked ? 0xf8fdff : 0xa7bfd4);
-  aura.material.color.setHex(bubble.isUnlocked ? 0xa8eeff : 0x6a8ca7);
-  aura.material.opacity = bubble.isUnlocked ? 0.3 : 0.18;
-}
-
-function createBubbleAudio(asset) {
-  const context = state.audioContext;
-  const element = document.createElement('audio');
-  element.src = asset.url;
-  element.loop = true;
-  element.preload = 'auto';
-  element.crossOrigin = 'anonymous';
-  element.playsInline = true;
-
-  const source = context.createMediaElementSource(element);
-  const gain = context.createGain();
-  const panner = context.createPanner();
-
-  panner.panningModel = 'HRTF';
-  panner.distanceModel = 'inverse';
-  panner.rolloffFactor = 0;
-  panner.refDistance = 1;
-  panner.maxDistance = 1000;
-  panner.coneInnerAngle = 360;
-  panner.coneOuterAngle = 0;
-
-  gain.gain.setValueAtTime(0.0001, context.currentTime);
-  source.connect(gain);
-  gain.connect(panner);
-  panner.connect(state.masterGain);
-
-  return { element, source, gain, panner, hasStarted: false };
-}
-
-function disposeBubbleVisual(root) {
-  root.traverse((object) => {
-    if (object.geometry) {
-      object.geometry.dispose();
-    }
-    if (object.material) {
-      if (Array.isArray(object.material)) {
-        object.material.forEach((material) => material.dispose());
-      } else {
-        object.material.dispose();
-      }
-    }
-  });
-}
-
-function disposeBubbleAudio(bubble) {
-  if (!bubble.audio) {
-    return;
-  }
-  const { element, source, gain, panner } = bubble.audio;
-  try {
-    element.pause();
-    element.src = '';
-    source.disconnect();
-    gain.disconnect();
-    panner.disconnect();
-  } catch (error) {
-    console.warn('Bubble audio cleanup warning.', error);
-  }
-  bubble.audio = null;
-}
-
-function getActiveCamera() {
-  return state.xrSession ? state.renderer.xr.getCamera(state.camera) : state.camera;
-}
-
-function getCameraWorldPosition() {
-  const activeCamera = getActiveCamera();
-  activeCamera.getWorldPosition(scratch.cameraWorld);
-  return scratch.cameraWorld.clone();
-}
-
-function getCameraWorldQuaternion() {
-  const activeCamera = getActiveCamera();
-  activeCamera.getWorldQuaternion(scratch.cameraQuaternion);
-  return scratch.cameraQuaternion.clone();
-}
-
-function getForwardPosition(distance) {
-  const cameraPosition = getCameraWorldPosition();
-  const cameraQuaternion = getCameraWorldQuaternion();
-  scratch.forward.set(0, 0, -1).applyQuaternion(cameraQuaternion).normalize();
-  return cameraPosition.add(scratch.forward.multiplyScalar(distance));
-}
-
-function getBubblePlaneY(cameraPosition) {
-  if (!state.xrSession) {
-    return cameraPosition.y;
-  }
-  return Math.max(1.15, cameraPosition.y - 0.22);
-}
-
-async function spawnBubble(asset, position, profile, options = {}) {
-  await ensureAudioContext();
-
-  const root = createBubbleVisual(profile.visualRadius, false);
-  root.position.copy(position);
-  root.scale.setScalar(0.0001);
-  state.scene.add(root);
-
-  const bubble = {
-    id: `bubble-${++state.bubbleSerial}`,
-    assetId: asset.id,
-    name: asset.name,
-    root,
-    visualRadius: profile.visualRadius,
-    range: profile.range,
-    gainMax: profile.gainMax,
-    floatOffset: Math.random() * Math.PI * 2,
-    driftPhase: Math.random() * Math.PI * 2,
-    createdAt: performance.now(),
-    stuck: Boolean(options.stuck),
-    releasePosition: root.position.clone(),
-    isUnlocked: false,
-    animatingOut: false,
-    audio: createBubbleAudio(asset),
-  };
-
-  root.userData.bubbleId = bubble.id;
-  state.bubbles.push(bubble);
-  renderActiveBubbles();
-  markFocusChip(false, 'Touch bubbles to wake sound');
-  updateStatus('Scene is live. Tap bubbles in AR to wake their audio.');
-  wakeHud();
-}
-
-async function unlockBubbleAudio(bubble) {
-  if (!bubble || bubble.isUnlocked || !bubble.audio) {
-    return;
-  }
-
-  await ensureAudioContext();
-  bubble.isUnlocked = true;
-  setBubbleVisualState(bubble);
-
-  if (!bubble.audio.hasStarted) {
-    try {
-      await bubble.audio.element.play();
-      bubble.audio.hasStarted = true;
-    } catch (error) {
-      bubble.isUnlocked = false;
-      setBubbleVisualState(bubble);
-      console.warn('Unable to start bubble audio.', error);
-      showToast('Audio wake failed. Tap the bubble again.');
-      return;
-    }
-  }
-
-  const now = state.audioContext.currentTime;
-  bubble.audio.gain.gain.cancelScheduledValues(now);
-  bubble.audio.gain.gain.setValueAtTime(0.0001, now);
-  bubble.audio.gain.gain.linearRampToValueAtTime(0.0001, now + FADE_SECONDS);
-  renderActiveBubbles();
-}
-
-function getSelectedAssets() {
-  return state.bubbleSet.filter((asset) => state.selectedIds.has(asset.id));
-}
-
-async function generateScene() {
-  if (!state.xrSession) {
-    showToast('Enter AR first for the fullscreen live scene.');
-    return;
-  }
-
-  const assets = getSelectedAssets();
-  if (!assets.length) {
-    showToast('Select at least one sound first.');
-    return;
-  }
-
-  await ensureAudioContext();
-  await clearBubbles(false);
-
-  const count = clampBubbleCount(state.bubbleCount);
-  const cameraPosition = getCameraWorldPosition();
-  const bubblePlaneY = getBubblePlaneY(cameraPosition);
-
-  for (let i = 0; i < count; i += 1) {
-    const angle = (i / count) * Math.PI * 2;
-    const x = Math.cos(angle) * RING_RADIUS;
-    const z = Math.sin(angle) * RING_RADIUS;
-    const position = new THREE.Vector3(cameraPosition.x + x, bubblePlaneY, cameraPosition.z + z);
-    const profile = buildBubbleProfile(i, count);
-    await spawnBubble(assets[i % assets.length], position, profile, { stuck: false });
-  }
-
-  showToast(`Generated ${count} silent bubbles around you. Touch them to wake the sound.`);
-}
-
-async function addBubbleAhead() {
-  if (!state.xrSession) {
-    showToast('Enter AR first to place a forward bubble.');
-    return;
-  }
-
-  const assets = getSelectedAssets();
-  if (!assets.length) {
-    showToast('Select at least one sound first.');
-    return;
-  }
-
-  if (state.bubbles.length >= MAX_BUBBLES) {
-    showToast('Maximum of 10 bubbles reached.');
-    return;
-  }
-
-  const asset = assets[state.bubbles.length % assets.length];
-  const profile = buildBubbleProfile(state.bubbles.length, MAX_BUBBLES);
-  const position = getForwardPosition(FORWARD_PLACE_DISTANCE);
-  await spawnBubble(asset, position, profile, { stuck: true });
-  showToast('Forward bubble added. Touch it in AR to wake its audio.');
-}
-
-function easeOutBack(t) {
-  const c1 = 1.70158;
-  const c3 = c1 + 1;
-  return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
-}
-
-function animateBubbleIn(bubble, ageSeconds) {
-  const t = Math.min(1, ageSeconds / BOUNCE_SECONDS);
-  bubble.root.scale.setScalar(Math.max(0.0001, easeOutBack(t)));
-}
-
-function updateListener() {
-  if (!state.audioContext) {
-    return;
-  }
-
-  const listener = state.audioContext.listener;
-  const activeCamera = getActiveCamera();
-  activeCamera.getWorldPosition(scratch.cameraWorld);
-  activeCamera.getWorldQuaternion(scratch.cameraQuaternion);
-  scratch.forward.set(0, 0, -1).applyQuaternion(scratch.cameraQuaternion).normalize();
-
-  if (listener.positionX) {
-    listener.positionX.value = scratch.cameraWorld.x;
-    listener.positionY.value = scratch.cameraWorld.y + (state.xrSession ? 0 : CAMERA_HEIGHT);
-    listener.positionZ.value = scratch.cameraWorld.z;
-    listener.forwardX.value = scratch.forward.x;
-    listener.forwardY.value = scratch.forward.y;
-    listener.forwardZ.value = scratch.forward.z;
-    listener.upX.value = scratch.up.x;
-    listener.upY.value = scratch.up.y;
-    listener.upZ.value = scratch.up.z;
-  } else {
-    listener.setPosition(
-      scratch.cameraWorld.x,
-      scratch.cameraWorld.y + (state.xrSession ? 0 : CAMERA_HEIGHT),
-      scratch.cameraWorld.z,
-    );
-    listener.setOrientation(scratch.forward.x, scratch.forward.y, scratch.forward.z, scratch.up.x, scratch.up.y, scratch.up.z);
-  }
-}
-
-function updateAudioBubble(bubble) {
-  if (!bubble.audio || !state.audioContext) {
-    return;
-  }
-
-  const activeCamera = getActiveCamera();
-  activeCamera.getWorldPosition(scratch.cameraWorld);
-  bubble.root.getWorldPosition(scratch.bubbleWorld);
-
-  const distance = scratch.cameraWorld.distanceTo(scratch.bubbleWorld);
-  const desiredGain = bubble.isUnlocked && distance < bubble.range
-    ? ((1 - distance / bubble.range) ** 2) * bubble.gainMax
-    : 0;
-
-  const now = state.audioContext.currentTime;
-  bubble.audio.gain.gain.cancelScheduledValues(now);
-  bubble.audio.gain.gain.linearRampToValueAtTime(Math.max(0.0001, desiredGain), now + 0.08);
-
-  bubble.audio.panner.positionX.value = scratch.bubbleWorld.x;
-  bubble.audio.panner.positionY.value = scratch.bubbleWorld.y + (state.xrSession ? 0 : CAMERA_HEIGHT);
-  bubble.audio.panner.positionZ.value = scratch.bubbleWorld.z;
-}
-
-function updateBubbles(time, delta) {
-  for (const bubble of state.bubbles) {
-    const ageSeconds = (time - bubble.createdAt) / 1000;
-    animateBubbleIn(bubble, ageSeconds);
-
-    if (bubble.stuck) {
-      const target = getForwardPosition(STICK_DISTANCE);
-      bubble.root.position.lerp(target, 1 - Math.exp(-delta * 10));
-      bubble.releasePosition.copy(bubble.root.position);
-    } else {
-      bubble.root.position.copy(bubble.releasePosition);
-      bubble.root.position.y += Math.sin(time * 0.001 * FLOAT_SPEED + bubble.floatOffset) * FLOAT_HEIGHT;
-      bubble.root.position.x += Math.cos(time * 0.0007 + bubble.driftPhase) * 0.01;
-      bubble.root.position.z += Math.sin(time * 0.0009 + bubble.driftPhase) * 0.012;
-    }
-
-    bubble.root.rotation.y += delta * 0.24;
-    updateAudioBubble(bubble);
-  }
-}
-
-function setBubbleStuck(bubble, nextValue) {
-  bubble.stuck = nextValue;
-  if (!nextValue) {
-    bubble.releasePosition.copy(bubble.root.position);
-  }
-  renderActiveBubbles();
-}
-
-async function touchBubbleById(id) {
-  const bubble = state.bubbles.find((item) => item.id === id);
-  if (!bubble) {
-    return;
-  }
-
-  if (!bubble.isUnlocked) {
-    await unlockBubbleAudio(bubble);
-    if (!bubble.isUnlocked) {
-      return;
-    }
-    showToast('Bubble awakened. Its sound is now live.');
-    markFocusChip(true, 'Bubble audio is now waking on touch');
-  }
-
-  setBubbleStuck(bubble, !bubble.stuck);
-  showToast(bubble.stuck ? 'Bubble collé to your movement.' : 'Bubble décollé into the world.');
-  wakeHud();
-}
-
-function fadeOutAndRemoveBubble(bubble) {
-  if (!bubble || bubble.animatingOut) {
-    return Promise.resolve();
-  }
-
-  bubble.animatingOut = true;
-
-  if (bubble.audio && state.audioContext) {
-    const now = state.audioContext.currentTime;
-    bubble.audio.gain.gain.cancelScheduledValues(now);
-    bubble.audio.gain.gain.setValueAtTime(bubble.audio.gain.gain.value || 0.0001, now);
-    bubble.audio.gain.gain.linearRampToValueAtTime(0.0001, now + FADE_SECONDS);
-  }
-
-  return new Promise((resolve) => {
-    window.setTimeout(() => {
-      state.scene.remove(bubble.root);
-      disposeBubbleVisual(bubble.root);
-      disposeBubbleAudio(bubble);
-      state.bubbles = state.bubbles.filter((item) => item.id !== bubble.id);
-      renderActiveBubbles();
-      resolve();
-    }, FADE_SECONDS * 1000 + 30);
-  });
-}
-
-async function undoBubble() {
-  const bubble = state.bubbles.at(-1);
-  if (!bubble) {
-    showToast('Nothing to undo yet.');
-    return;
-  }
-  await fadeOutAndRemoveBubble(bubble);
-  showToast('Last bubble removed.');
-}
-
-async function clearBubbles(notify = true) {
-  const current = [...state.bubbles].reverse();
-  for (const bubble of current) {
-    await fadeOutAndRemoveBubble(bubble);
-  }
-  if (notify) {
-    showToast('Scene cleared.');
-  }
-}
-
-function performPointerRaycast(clientX, clientY) {
-  const rect = state.renderer.domElement.getBoundingClientRect();
-  scratch.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
-  scratch.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
-  scratch.raycaster.setFromCamera(scratch.pointer, state.camera);
-  const hits = scratch.raycaster.intersectObjects(state.scene.children, true);
-  const hit = hits.find((entry) => entry.object.userData?.bubbleId || entry.object.parent?.userData?.bubbleId);
-  return hit ? hit.object.userData?.bubbleId || hit.object.parent?.userData?.bubbleId : '';
-}
-
-async function handleCanvasTap(event) {
-  const bubbleId = performPointerRaycast(event.clientX, event.clientY);
-  if (bubbleId) {
-    await touchBubbleById(bubbleId);
-  }
-}
-
-async function handleXRSelect() {
-  scratch.matrix.identity().extractRotation(state.renderer.xr.getController(0).matrixWorld);
-  scratch.raycaster.ray.origin.setFromMatrixPosition(state.renderer.xr.getController(0).matrixWorld);
-  scratch.raycaster.ray.direction.set(0, 0, -1).applyMatrix4(scratch.matrix).normalize();
-  const hits = scratch.raycaster.intersectObjects(state.scene.children, true);
-  const hit = hits.find((entry) => entry.object.userData?.bubbleId || entry.object.parent?.userData?.bubbleId);
-  if (!hit) {
-    return;
-  }
-  const bubbleId = hit.object.userData?.bubbleId || hit.object.parent?.userData?.bubbleId;
-  if (bubbleId) {
-    await touchBubbleById(bubbleId);
-  }
-}
-
-function updateFallbackLook() {
-  if (state.xrSession) {
-    return;
-  }
-  state.camera.rotation.order = 'YXZ';
-  state.camera.rotation.y = state.yaw;
-  state.camera.rotation.x = state.pitch;
-}
-
-function initThree() {
-  state.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-  state.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  state.renderer.setSize(window.innerWidth, window.innerHeight);
-  state.renderer.outputColorSpace = THREE.SRGBColorSpace;
-  state.renderer.xr.enabled = true;
-  dom.scene.append(state.renderer.domElement);
-
-  state.scene = new THREE.Scene();
-  state.scene.fog = new THREE.Fog(0x060813, 3.5, 12);
-
-  state.camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.01, 50);
-  state.camera.position.set(0, 0, 0);
-
-  const hemi = new THREE.HemisphereLight(0xb6e8ff, 0x04060e, 1.25);
-  const key = new THREE.PointLight(0x81e2ff, 24, 14, 1.8);
-  key.position.set(0, 2, 0.8);
-  const rim = new THREE.PointLight(0x9388ff, 10, 8, 2.1);
-  rim.position.set(-1.2, 1.4, -1.3);
-  state.scene.add(hemi, key, rim);
-
-  const starsGeometry = new THREE.BufferGeometry();
-  const starCount = 280;
-  const starPositions = new Float32Array(starCount * 3);
-  for (let i = 0; i < starCount; i += 1) {
-    const radius = THREE.MathUtils.randFloat(4, 10);
-    const theta = THREE.MathUtils.randFloat(0, Math.PI * 2);
-    const phi = THREE.MathUtils.randFloat(0.15, Math.PI - 0.2);
-    starPositions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
-    starPositions[i * 3 + 1] = radius * Math.cos(phi);
-    starPositions[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
-  }
-  starsGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-  const stars = new THREE.Points(
-    starsGeometry,
-    new THREE.PointsMaterial({ color: 0xc7ecff, size: 0.03, transparent: true, opacity: 0.82 }),
-  );
-  state.scene.add(stars);
-
-  const controller = state.renderer.xr.getController(0);
-  controller.addEventListener('select', () => {
-    handleXRSelect();
-  });
-  state.scene.add(controller);
-}
-
-async function checkArSupport() {
-  if (!navigator.xr?.isSessionSupported) {
-    dom.enterArButton.disabled = true;
-    markSessionChip(false, 'AR unavailable');
-    updateStatus('This browser does not support immersive AR.');
-    return;
-  }
-
-  try {
-    const supported = await navigator.xr.isSessionSupported('immersive-ar');
-    if (supported) {
-      markSessionChip(false, 'AR ready');
-      updateStatus('Import sounds, then enter AR for the fullscreen live scene.');
-    } else {
-      dom.enterArButton.disabled = true;
-      markSessionChip(false, 'AR unavailable');
-      updateStatus('Immersive AR is not available on this device.');
-    }
-  } catch (error) {
-    console.warn(error);
-    dom.enterArButton.disabled = true;
-    markSessionChip(false, 'AR check failed');
-    updateStatus('Unable to verify AR support.');
-  }
-}
-
-async function enterAr() {
-  if (!navigator.xr || state.xrSession) {
-    return;
-  }
-
-  try {
-    await ensureAudioContext();
-    const session = await navigator.xr.requestSession('immersive-ar', {
-      requiredFeatures: ['local-floor'],
-      optionalFeatures: ['dom-overlay'],
-      domOverlay: { root: dom.overlay },
-    });
-
-    session.addEventListener('end', handleSessionEnd);
-    await state.renderer.xr.setSession(session);
-    state.xrSession = session;
-    dom.overlay.classList.add('is-ar');
-    dom.dockButton.classList.remove('hidden');
-    dom.exitArButton.classList.remove('hidden');
-    dom.enterArButton.textContent = 'AR active';
-    dom.enterArButton.disabled = true;
-    markSessionChip(true, 'AR live');
-    markFocusChip(false, 'Touch bubbles to wake sound');
-    updateStatus('AR is live. Generate bubbles and touch them to wake audio.');
-    wakeHud();
-    closeHudSoon();
-  } catch (error) {
-    console.warn(error);
-    showToast('Unable to start AR on this device.');
-  }
-}
-
-function handleSessionEnd() {
-  state.xrSession = null;
-  dom.overlay.classList.remove('is-ar');
-  dom.panelShell.classList.remove('is-faded');
-  dom.dockButton.classList.add('hidden');
-  dom.exitArButton.classList.add('hidden');
-  dom.enterArButton.textContent = 'Enter AR';
-  dom.enterArButton.disabled = false;
-  markSessionChip(false, 'AR ended');
-  markFocusChip(false, 'Touch bubbles to wake sound');
-  updateStatus('AR ended. You can re-enter at any time.');
-  window.clearTimeout(state.hudTimer);
-}
-
-async function exitAr() {
-  if (state.xrSession) {
-    await state.xrSession.end();
-  }
-}
-
-function attachEvents() {
-  dom.importButton.addEventListener('click', () => dom.fileInput.click());
-  dom.importInlineButton.addEventListener('click', () => dom.fileInput.click());
-  dom.fileInput.addEventListener('change', async (event) => {
-    const files = Array.from(event.target.files || []);
-    event.target.value = '';
-    await importFiles(files);
-  });
-
-  dom.enterArButton.addEventListener('click', () => enterAr());
-  dom.exitArButton.addEventListener('click', () => exitAr());
-  dom.dockButton.addEventListener('click', () => {
-    wakeHud();
-  });
-
-  dom.prevSlideButton.addEventListener('click', () => {
-    setCarouselIndex(state.carouselIndex - 1);
-    wakeHud();
-  });
-
-  dom.nextSlideButton.addEventListener('click', () => {
-    setCarouselIndex(state.carouselIndex + 1);
-    wakeHud();
-  });
-
-  dom.assetList.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-asset-id]');
-    if (!button) {
-      return;
-    }
-
-    const { assetId } = button.dataset;
-    if (state.selectedIds.has(assetId)) {
-      state.selectedIds.delete(assetId);
-    } else if (state.selectedIds.size < MAX_BUBBLES) {
-      state.selectedIds.add(assetId);
-    }
-    renderBubbleSet();
-    wakeHud();
-  });
-
-  dom.bubbleSlider.addEventListener('input', (event) => {
-    state.bubbleCount = clampBubbleCount(event.target.value);
-    updateSelectionSummary();
-    wakeHud();
-  });
-
-  dom.generateButton.addEventListener('click', () => generateScene());
-  dom.addForwardButton.addEventListener('click', () => addBubbleAhead());
-  dom.undoButton.addEventListener('click', () => undoBubble());
-  dom.clearButton.addEventListener('click', () => clearBubbles());
-
-  dom.bubbleList.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-focus-bubble]');
-    if (!button) {
-      return;
-    }
-    touchBubbleById(button.dataset.focusBubble);
-  });
-
-  dom.overlay.addEventListener('pointerdown', () => wakeHud());
-  dom.overlay.addEventListener('pointerup', () => closeHudSoon());
-
-  state.renderer.domElement.addEventListener('click', async (event) => {
-    if (state.dragging || state.dragMoved) {
-      return;
-    }
-    await handleCanvasTap(event);
-  });
-
-  state.renderer.domElement.addEventListener('pointerdown', (event) => {
-    if (state.xrSession) {
-      return;
-    }
-    if (event.pointerType === 'mouse' || event.pointerType === 'touch') {
-      state.dragging = true;
-      state.dragPointerId = event.pointerId;
-      state.dragMoved = false;
-      state.lastPointer.x = event.clientX;
-      state.lastPointer.y = event.clientY;
-      state.renderer.domElement.setPointerCapture(event.pointerId);
-    }
-  });
-
-  state.renderer.domElement.addEventListener('pointermove', (event) => {
-    if (state.xrSession || !state.dragging || state.dragPointerId !== event.pointerId) {
-      return;
-    }
-
-    const dx = event.clientX - state.lastPointer.x;
-    const dy = event.clientY - state.lastPointer.y;
-    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
-      state.dragMoved = true;
-    }
-    state.lastPointer.x = event.clientX;
-    state.lastPointer.y = event.clientY;
-    state.yaw -= dx * LOOK_SENSITIVITY;
-    state.pitch = THREE.MathUtils.clamp(state.pitch - dy * LOOK_SENSITIVITY, -PAN_LIMIT, PAN_LIMIT);
-  });
-
-  const releaseDrag = (event) => {
-    if (state.dragPointerId !== event.pointerId) {
-      return;
-    }
-    state.dragging = false;
-    state.dragPointerId = null;
-    window.setTimeout(() => {
-      state.dragMoved = false;
-    }, 0);
-    state.renderer.domElement.releasePointerCapture(event.pointerId);
-  };
-
-  state.renderer.domElement.addEventListener('pointerup', releaseDrag);
-  state.renderer.domElement.addEventListener('pointercancel', releaseDrag);
-
-  window.addEventListener('resize', () => {
-    state.camera.aspect = window.innerWidth / window.innerHeight;
-    state.camera.updateProjectionMatrix();
-    state.renderer.setSize(window.innerWidth, window.innerHeight);
-  });
-}
-
-function renderLoop(time) {
-  const delta = state.clock.getDelta();
-  updateFallbackLook();
-  updateListener();
-  updateBubbles(time, delta);
-  state.renderer.render(state.scene, state.camera);
-}
-
-async function init() {
-  loadBubbleSet();
-  initThree();
-  attachEvents();
-  renderBubbleSet();
-  renderActiveBubbles();
-  updateSelectionSummary();
-  initCarousel();
-  await checkArSupport();
-  state.renderer.setAnimationLoop(renderLoop);
-
-  if (state.bubbleSet.length) {
-    updateStatus('Bubble set restored. Enter AR when you are ready.');
-  }
-}
-
-init();
