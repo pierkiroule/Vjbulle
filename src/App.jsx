@@ -24,7 +24,6 @@ function App() {
     isBusy,
     pendingPadId,
     isRecordingMic,
-    menuOpen,
     readiness,
     toasts,
     enterAr,
@@ -36,7 +35,6 @@ function App() {
     placeBubbleFromPad,
     clearAllBubbles,
     setPendingPadId,
-    setMenuOpen,
   } = useEchoBubbleLoop();
 
   const filledPadIds = useMemo(() => new Set(pads.filter((pad) => pad.buffer).map((pad) => pad.id)), [pads]);
@@ -92,33 +90,21 @@ function App() {
           <div className="glass-pill hud-status hud-status--compact">
             <div>
               <span className="hud-label">AR Bubble Looper</span>
-              <strong>{bpm} BPM · {bubbleCount}/8 bubbles</strong>
+              <strong>{bpm} BPM · {bubbleCount}/8 bulles</strong>
             </div>
           </div>
 
           <div className="hud-actions">
-            <button type="button" className="icon-button" onClick={() => setMenuOpen((current) => !current)} aria-label="Options">
-              ⚙️
-            </button>
+            {!!bubbleCount && (
+              <button type="button" className="action-button" onClick={() => clearAllBubbles(true)}>
+                Vider
+              </button>
+            )}
             <button type="button" className="primary-button" onClick={enterAr} disabled={isBusy || (!isArSupported && !isSessionActive)}>
               {isSessionActive ? 'Quitter AR' : isBusy ? 'Starting…' : 'Entrer AR'}
             </button>
           </div>
         </div>
-
-        {menuOpen && (
-          <div className="glass-sheet mini-menu mini-menu--floating mini-menu--compact">
-            <p>{readiness}</p>
-            <div className="mini-menu__actions">
-              <button type="button" className="action-button" onClick={() => clearAllBubbles(true)} disabled={!bubbleCount}>
-                Vider les bulles
-              </button>
-              <button type="button" className="action-button" onClick={() => setMenuOpen(false)}>
-                Fermer
-              </button>
-            </div>
-          </div>
-        )}
 
         {!isArSupported && !isSessionActive && (
           <div className="glass-pill availability-banner availability-banner--inline">
