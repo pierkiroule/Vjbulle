@@ -91,12 +91,12 @@ function App() {
       <div ref={overlayRootRef} className="dom-overlay-root">
         <div className={`overlay-root ${isSessionActive ? 'is-ar' : ''}`}>
           <div className="bottom-dock" aria-live="polite">
-            <div className="control-carousel" role="list" aria-label="Contrôles AR Bubble Looper">
-              <section className="glass-sheet control-card control-card--session" role="listitem" aria-label="Statut de session">
-                <div className="control-card__cluster">
+            <div className="glass-sheet bottom-menu" aria-label="Menu bas">
+              <div className="bottom-menu__row bottom-menu__row--primary">
+                <div className="bottom-menu__summary">
                   <div>
-                    <span className="hud-label">Session</span>
-                    <strong>AR Bubble Looper</strong>
+                    <span className="hud-label">AR Bubble Looper</span>
+                    <strong>Menu bas</strong>
                   </div>
                   <div className="metric-strip" aria-label="Résumé de session">
                     <span className="metric-pill">{bpm} BPM</span>
@@ -104,11 +104,11 @@ function App() {
                     <span className="metric-pill metric-pill--status">{readiness}</span>
                   </div>
                   {!isArSupported && !isSessionActive && (
-                    <p className="control-card__hint control-card__hint--warning">{availabilityMessage}</p>
+                    <p className="bottom-menu__hint bottom-menu__hint--warning">{availabilityMessage}</p>
                   )}
                 </div>
 
-                <div className="control-card__actions control-card__actions--session">
+                <div className="bottom-menu__actions">
                   {!!bubbleCount && (
                     <button type="button" className="action-button action-button--ghost" onClick={() => clearAllBubbles(true)}>
                       Vider
@@ -118,73 +118,65 @@ function App() {
                     {isSessionActive ? 'Quitter AR' : isBusy ? 'Starting…' : 'Entrer AR'}
                   </button>
                 </div>
-              </section>
+              </div>
 
-              <section className="glass-sheet control-card control-card--tools" role="listitem" aria-label="Outils du pad">
-                <div className="sheet-head sheet-head--compact">
-                  <div>
-                    <span className="hud-label">Outils</span>
-                    <strong>{pendingPadId ? `Pad ${pendingPadId.split('-').at(-1)}` : 'Import / micro'}</strong>
+              {!!pendingPadId && (
+                <div className="bottom-menu__row bottom-menu__row--secondary">
+                  <div className="bottom-menu__context">
+                    <div>
+                      <span className="hud-label">Pad {pendingPadId.split('-').at(-1)}</span>
+                      <strong>{filledPadIds.has(pendingPadId) ? 'Remplacer le sample' : 'Ajouter un sample'}</strong>
+                    </div>
+                    <p className="bottom-menu__hint">
+                      {filledPadIds.has(pendingPadId) ? 'Importez une nouvelle source ou enregistrez au micro.' : 'Choisissez un import ou une prise micro.'}
+                    </p>
                   </div>
-                  {!!pendingPadId && (
-                    <button type="button" className="icon-button" onClick={() => setPendingPadId('')} disabled={isRecordingMic} aria-label="Fermer l’édition du pad">
+
+                  <div className="bottom-menu__actions bottom-menu__actions--compact">
+                    <button
+                      type="button"
+                      className="action-button"
+                      onClick={() => openFilePickerForPad(pendingPadId, fileInputRef.current)}
+                    >
+                      Import
+                    </button>
+                    <button
+                      type="button"
+                      className={`action-button ${isRecordingMic ? 'action-button--danger' : ''}`}
+                      onClick={() => toggleMicRecording(pendingPadId)}
+                    >
+                      {isRecordingMic ? 'Stop mic' : 'Micro'}
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      onClick={() => setPendingPadId('')}
+                      disabled={isRecordingMic}
+                      aria-label="Fermer l’édition du pad"
+                    >
                       ✕
                     </button>
-                  )}
-                </div>
-
-                {pendingPadId ? (
-                  <>
-                    <p className="control-card__hint">
-                      {filledPadIds.has(pendingPadId) ? 'Remplacer le sample.' : 'Ajouter un sample.'}
-                    </p>
-                    <div className="control-card__actions control-card__actions--compact">
-                      <button
-                        type="button"
-                        className="action-button"
-                        onClick={() => openFilePickerForPad(pendingPadId, fileInputRef.current)}
-                      >
-                        Import
-                      </button>
-                      <button
-                        type="button"
-                        className={`action-button ${isRecordingMic ? 'action-button--danger' : ''}`}
-                        onClick={() => toggleMicRecording(pendingPadId)}
-                      >
-                        {isRecordingMic ? 'Stop mic' : 'Micro'}
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <p className="control-card__hint">
-                    Maintien long sur un pad pour ouvrir ses outils sans masquer la vue AR.
-                  </p>
-                )}
-              </section>
-
-              <section className="glass-sheet control-card control-card--bubbles" role="listitem" aria-label="Gestion des bulles">
-                <div className="sheet-head sheet-head--compact">
-                  <div>
-                    <span className="hud-label">Bulles</span>
-                    <strong>{bubbleCount ? `${bubbleCount} actives` : 'Aucune active'}</strong>
                   </div>
-                  {!!bubbleCount && (
-                    <button type="button" className="action-button action-button--ghost" onClick={() => clearAllBubbles(true)}>
-                      Tout vider
-                    </button>
-                  )}
                 </div>
+              )}
 
-                {!!bubbleCount ? (
-                  <div className="bubble-chip-list" role="list" aria-label="Bulles audio">
+              {!!bubbleCount && (
+                <div className="bottom-menu__row bottom-menu__row--bubbles">
+                  <div className="bottom-menu__context">
+                    <div>
+                      <span className="hud-label">Bulles</span>
+                      <strong>{bubbleCount} active{bubbleCount > 1 ? 's' : ''}</strong>
+                    </div>
+                  </div>
+
+                  <div className="bubble-inline-list" role="list" aria-label="Bulles audio">
                     {placedBubbles.map((bubble) => (
-                      <div key={bubble.id} className="bubble-chip" role="listitem">
-                        <div className="bubble-chip__copy">
+                      <div key={bubble.id} className="bubble-inline-card" role="listitem">
+                        <div className="bubble-inline-card__copy">
                           <strong>{bubble.label}</strong>
                           <span>{bubble.attached ? 'Caméra' : 'Scène'}</span>
                         </div>
-
-                        <div className="bubble-chip__actions">
+                        <div className="bubble-inline-card__actions">
                           <button
                             type="button"
                             className="action-button action-button--ghost"
@@ -192,7 +184,6 @@ function App() {
                           >
                             {bubble.attached ? 'Décoller' : 'Coller'}
                           </button>
-
                           <button
                             type="button"
                             className="action-button action-button--danger"
@@ -204,19 +195,17 @@ function App() {
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <p className="control-card__hint">
-                    Touchez un pad rempli pour placer une bulle, puis gérez-la ici.
-                  </p>
-                )}
-              </section>
+                </div>
+              )}
+            </div>
 
+            <div className="pad-strip" role="list" aria-label="Pads audio">
               {pads.map((pad) => (
                 <button
                   key={pad.id}
                   type="button"
                   role="listitem"
-                  className={`control-card pad-card ${pad.buffer ? 'is-filled' : 'is-empty'} ${pendingPadId === pad.id ? 'is-pending' : ''}`}
+                  className={`pad-card ${pad.buffer ? 'is-filled' : 'is-empty'} ${pendingPadId === pad.id ? 'is-pending' : ''}`}
                   onPointerDown={() => handlePadPointerDown(pad)}
                   onPointerUp={handlePadPointerUp}
                   onPointerLeave={handlePadPointerUp}
