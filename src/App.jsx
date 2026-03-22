@@ -92,28 +92,25 @@ function App() {
         <div className={`overlay-root ${isSessionActive ? 'is-ar' : ''}`}>
           <div className="bottom-dock" aria-live="polite">
             <div className="control-carousel" role="list" aria-label="Contrôles AR Bubble Looper">
-              <section className="glass-sheet control-card control-card--status" role="listitem" aria-label="Statut de session">
-                <div>
-                  <span className="hud-label">Session</span>
-                  <strong>AR Bubble Looper</strong>
-                  <p className="control-card__lead">{bpm} BPM · {bubbleCount}/8 bulles</p>
-                </div>
-
-                <div className="control-card__content">
-                  <div className="glass-pill compact-instructions compact-instructions--inline compact-instructions--minimal">
-                    <strong>{readiness}</strong>
+              <section className="glass-sheet control-card control-card--session" role="listitem" aria-label="Statut de session">
+                <div className="control-card__cluster">
+                  <div>
+                    <span className="hud-label">Session</span>
+                    <strong>AR Bubble Looper</strong>
                   </div>
-
+                  <div className="metric-strip" aria-label="Résumé de session">
+                    <span className="metric-pill">{bpm} BPM</span>
+                    <span className="metric-pill">{bubbleCount}/8 bulles</span>
+                    <span className="metric-pill metric-pill--status">{readiness}</span>
+                  </div>
                   {!isArSupported && !isSessionActive && (
-                    <div className="glass-pill availability-banner availability-banner--inline">
-                      {availabilityMessage}
-                    </div>
+                    <p className="control-card__hint control-card__hint--warning">{availabilityMessage}</p>
                   )}
                 </div>
 
-                <div className="control-card__actions">
+                <div className="control-card__actions control-card__actions--session">
                   {!!bubbleCount && (
-                    <button type="button" className="action-button" onClick={() => clearAllBubbles(true)}>
+                    <button type="button" className="action-button action-button--ghost" onClick={() => clearAllBubbles(true)}>
                       Vider
                     </button>
                   )}
@@ -123,8 +120,8 @@ function App() {
                 </div>
               </section>
 
-              <section className="glass-sheet control-card" role="listitem" aria-label="Outils du pad">
-                <div className="sheet-head">
+              <section className="glass-sheet control-card control-card--tools" role="listitem" aria-label="Outils du pad">
+                <div className="sheet-head sheet-head--compact">
                   <div>
                     <span className="hud-label">Outils</span>
                     <strong>{pendingPadId ? `Pad ${pendingPadId.split('-').at(-1)}` : 'Import / micro'}</strong>
@@ -138,13 +135,10 @@ function App() {
 
                 {pendingPadId ? (
                   <>
-                    <div className="control-card__content">
-                      <p className="control-card__lead">
-                        {filledPadIds.has(pendingPadId) ? 'Remplacer le sample sélectionné.' : 'Ajouter un sample à ce pad.'}
-                      </p>
-                    </div>
-
-                    <div className="control-card__actions">
+                    <p className="control-card__hint">
+                      {filledPadIds.has(pendingPadId) ? 'Remplacer le sample.' : 'Ajouter un sample.'}
+                    </p>
+                    <div className="control-card__actions control-card__actions--compact">
                       <button
                         type="button"
                         className="action-button"
@@ -162,17 +156,17 @@ function App() {
                     </div>
                   </>
                 ) : (
-                  <div className="control-card__empty">
-                    Maintiens un pad pour ouvrir ses outils d’import ou d’enregistrement micro.
-                  </div>
+                  <p className="control-card__hint">
+                    Maintien long sur un pad pour ouvrir ses outils sans masquer la vue AR.
+                  </p>
                 )}
               </section>
 
-              <section className="glass-sheet control-card" role="listitem" aria-label="Gestion des bulles">
-                <div className="sheet-head">
+              <section className="glass-sheet control-card control-card--bubbles" role="listitem" aria-label="Gestion des bulles">
+                <div className="sheet-head sheet-head--compact">
                   <div>
                     <span className="hud-label">Bulles</span>
-                    <strong>{bubbleCount ? `${bubbleCount} loop${bubbleCount > 1 ? 's' : ''} actif${bubbleCount > 1 ? 's' : ''}` : 'Aucune bulle active'}</strong>
+                    <strong>{bubbleCount ? `${bubbleCount} actives` : 'Aucune active'}</strong>
                   </div>
                   {!!bubbleCount && (
                     <button type="button" className="action-button action-button--ghost" onClick={() => clearAllBubbles(true)}>
@@ -182,15 +176,15 @@ function App() {
                 </div>
 
                 {!!bubbleCount ? (
-                  <div className="bubble-list" role="list" aria-label="Bulles audio">
+                  <div className="bubble-chip-list" role="list" aria-label="Bulles audio">
                     {placedBubbles.map((bubble) => (
-                      <div key={bubble.id} className="bubble-row" role="listitem">
-                        <div className="bubble-row__copy">
+                      <div key={bubble.id} className="bubble-chip" role="listitem">
+                        <div className="bubble-chip__copy">
                           <strong>{bubble.label}</strong>
-                          <span>{bubble.attached ? 'Collée à la caméra' : 'Libre dans la scène'}</span>
+                          <span>{bubble.attached ? 'Caméra' : 'Scène'}</span>
                         </div>
 
-                        <div className="bubble-row__actions">
+                        <div className="bubble-chip__actions">
                           <button
                             type="button"
                             className="action-button action-button--ghost"
@@ -204,16 +198,16 @@ function App() {
                             className="action-button action-button--danger"
                             onClick={() => popBubble(bubble.id)}
                           >
-                            Supprimer
+                            Suppr.
                           </button>
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="control-card__empty">
-                    Place une bulle depuis un pad rempli pour afficher ses actions ici.
-                  </div>
+                  <p className="control-card__hint">
+                    Touchez un pad rempli pour placer une bulle, puis gérez-la ici.
+                  </p>
                 )}
               </section>
 
